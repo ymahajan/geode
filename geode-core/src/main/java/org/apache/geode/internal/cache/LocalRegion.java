@@ -11095,7 +11095,7 @@ public class LocalRegion extends AbstractRegion implements LoaderHelperFactory,
   }
 
   public boolean lruLimitExceeded() {
-    return this.entries.lruLimitExceeded();
+    return this.entries.lruLimitExceeded(getDiskRegionView());
   }
 
   public DiskEntry getDiskEntry(Object key) {

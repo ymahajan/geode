@@ -26,6 +26,7 @@ import org.apache.geode.distributed.internal.DistributionConfig;
 import org.apache.geode.internal.statistics.StatisticsTypeFactoryImpl;
 import org.apache.geode.internal.cache.*;
 import org.apache.geode.internal.cache.control.InternalResourceManager;
+import org.apache.geode.internal.cache.persistence.DiskRegionView;
 import org.apache.geode.internal.i18n.LocalizedStrings;
 
 import java.util.Properties;
@@ -267,20 +268,10 @@ public class HeapLRUCapacityController extends LRUAlgorithm {
        * greater than the overflow threshold, then we evict the LRU entry.
        */
       public boolean mustEvict(LRUStatistics stats, Region region, int delta) {
-        final GemFireCacheImpl cache;
-        if (region != null) {
-          cache = (GemFireCacheImpl) region.getRegionService();
-        } else {
-          cache = GemFireCacheImpl.getInstance();
-        }
+        final GemFireCacheImpl cache = (GemFireCacheImpl) region.getRegionService();
         InternalResourceManager resourceManager = cache.getResourceManager();
-
-        if (region == null) {
-          return resourceManager.getHeapMonitor().getState().isEviction();
-        }
-
         final boolean monitorStateIsEviction;
-        if (!((AbstractRegion) region).getOffHeap()) {
+        if (!region.getAttributes().getOffHeap()) {
           monitorStateIsEviction = resourceManager.getHeapMonitor().getState().isEviction();
         } else {
           monitorStateIsEviction = resourceManager.getOffHeapMonitor().getState().isEviction();
@@ -291,6 +282,16 @@ public class HeapLRUCapacityController extends LRUAlgorithm {
         }
 
         return monitorStateIsEviction && ((LocalRegion) region).getRegionMap().sizeInVM() > 0;
+      }
+
+      @Override
+      public boolean lruLimitExceeded(LRUStatistics lruStatistics, DiskRegionView drv) {
+        InternalResourceManager resourceManager = drv.getDiskStore().getCache().getResourceManager();
+        if (!drv.getOffHeap()) {
+          return resourceManager.getHeapMonitor().getState().isEviction();
+        } else {
+          return resourceManager.getOffHeapMonitor().getState().isEviction();
+        }
       }
     };
   }

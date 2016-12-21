@@ -36,6 +36,7 @@ import org.apache.geode.internal.cache.lru.LRUStatistics;
 import org.apache.geode.internal.cache.lru.MemLRUCapacityController;
 import org.apache.geode.internal.cache.lru.NewLIFOClockHand;
 import org.apache.geode.internal.cache.lru.NewLRUClockHand;
+import org.apache.geode.internal.cache.persistence.DiskRegionView;
 import org.apache.geode.internal.cache.versions.RegionVersionVector;
 import org.apache.geode.internal.cache.versions.VersionSource;
 import org.apache.geode.internal.i18n.LocalizedStrings;
@@ -856,8 +857,8 @@ public abstract class AbstractLRURegionMap extends AbstractRegionMap {
   }
 
   @Override
-  public final boolean lruLimitExceeded() {
-    return _getCCHelper().mustEvict(_getLruList().stats(), null, 0);
+  public final boolean lruLimitExceeded(DiskRegionView drv) {
+    return _getCCHelper().lruLimitExceeded(_getLruList().stats(), drv);
   }
 
   @Override

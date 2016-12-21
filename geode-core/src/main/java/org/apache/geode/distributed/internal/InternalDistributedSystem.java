@@ -36,6 +36,7 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.logging.log4j.Logger;
@@ -794,15 +795,13 @@ public class InternalDistributedSystem extends DistributedSystem
       // if locator is started this way, cluster config is not enabled, set the flag correctly
       this.startedLocator.getConfig().setEnableClusterConfiguration(false);
 
-      if (locId.isPeerLocator()) {
-        boolean startedPeerLocation = false;
-        try {
-          this.startedLocator.startPeerLocation(true);
-          startedPeerLocation = true;
-        } finally {
-          if (!startedPeerLocation) {
-            this.startedLocator.stop();
-          }
+      boolean startedPeerLocation = false;
+      try {
+        this.startedLocator.startPeerLocation(true);
+        startedPeerLocation = true;
+      } finally {
+        if (!startedPeerLocation) {
+          this.startedLocator.stop();
         }
       }
     } catch (IOException e) {
@@ -819,17 +818,9 @@ public class InternalDistributedSystem extends DistributedSystem
   private void endInitLocator() throws IOException {
     InternalLocator loc = this.startedLocator;
     if (loc != null) {
-      String locatorString = this.originalConfig.getStartLocator();
-      // DistributionLocatorId locId = new DistributionLocatorId(locatorString);
       boolean finished = false;
       try {
-        // during the period when the product is using only paper licenses we always
-        // start server location services in order to be able to log information
-        // about the use of cache servers
-        // if(locId.isServerLocator()) {
         loc.startServerLocation(this);
-        // }
-
         loc.endStartLocator(this);
         finished = true;
       } finally {
@@ -1726,8 +1717,7 @@ public class InternalDistributedSystem extends DistributedSystem
 
   private final CopyOnWriteArrayList<Statistics> statsList = new CopyOnWriteArrayList<Statistics>();
   private int statsListModCount = 0;
-  private long statsListUniqueId = 1;
-  private final Object statsListUniqueIdLock = new Object();
+  private AtomicLong statsListUniqueId = new AtomicLong(1);
 
   // As the function execution stats can be lot in number, its better to put
   // them in a map so that it will be accessible immediately
@@ -1800,10 +1790,7 @@ public class InternalDistributedSystem extends DistributedSystem
     if (this.statsDisabled) {
       return new DummyStatisticsImpl(type, textId, numericId);
     }
-    long myUniqueId;
-    synchronized (statsListUniqueIdLock) {
-      myUniqueId = statsListUniqueId++; // fix for bug 30597
-    }
+    long myUniqueId = statsListUniqueId.getAndIncrement();
     Statistics result =
         new LocalStatisticsImpl(type, textId, numericId, myUniqueId, false, osStatFlags, this);
     synchronized (statsList) {
@@ -1935,10 +1922,7 @@ public class InternalDistributedSystem extends DistributedSystem
       return new DummyStatisticsImpl(type, textId, numericId);
     }
 
-    long myUniqueId;
-    synchronized (statsListUniqueIdLock) {
-      myUniqueId = statsListUniqueId++; // fix for bug 30597
-    }
+    long myUniqueId = statsListUniqueId.getAndIncrement();
     Statistics result = StatisticsImpl.createAtomicNoOS(type, textId, numericId, myUniqueId, this);
     synchronized (statsList) {
       statsList.add(result);

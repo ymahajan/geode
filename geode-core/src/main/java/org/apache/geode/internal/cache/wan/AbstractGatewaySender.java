@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import org.apache.geode.internal.cache.ha.ThreadIdentifier;
 import org.apache.logging.log4j.Logger;
 
 import org.apache.geode.CancelCriterion;
@@ -510,6 +511,7 @@ public abstract class AbstractGatewaySender implements GatewaySender, Distributi
    * In case of ParallelGatewaySender, the destroy operation does distributed destroy of the QPR. In
    * case of SerialGatewaySender, the queue region is destroyed locally.
    */
+  @Override
   public void destroy() {
     try {
       this.getLifeCycleLock().writeLock().lock();
@@ -1116,6 +1118,11 @@ public abstract class AbstractGatewaySender implements GatewaySender, Distributi
           }
         } else {
           index = region.size();
+          if (index > ThreadIdentifier.Bits.GATEWAY_ID.mask()) {
+            throw new IllegalStateException(
+                LocalizedStrings.AbstractGatewaySender_CANNOT_CREATE_SENDER_0_BECAUSE_MAXIMUM_1_HAS_BEEN_REACHED
+                    .toLocalizedString(getId(), ThreadIdentifier.Bits.GATEWAY_ID.mask() + 1));
+          }
           region.put(getId(), index);
           if (isDebugEnabled) {
             messagePrefix = "Created new";

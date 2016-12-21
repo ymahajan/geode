@@ -15,17 +15,16 @@
 
 package org.apache.geode.internal.net;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
-
 import org.apache.commons.lang.ArrayUtils;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.geode.GemFireConfigException;
 import org.apache.geode.distributed.internal.DistributionConfig;
 import org.apache.geode.internal.admin.SSLConfig;
 import org.apache.geode.internal.security.SecurableCommunicationChannel;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
 
 public class SSLConfigurationFactory {
 

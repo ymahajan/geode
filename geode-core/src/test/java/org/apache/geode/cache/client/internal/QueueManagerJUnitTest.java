@@ -28,6 +28,7 @@ import org.apache.geode.internal.cache.tier.sockets.ServerQueueStatus;
 import org.apache.geode.internal.logging.InternalLogWriter;
 import org.apache.geode.internal.logging.LocalLogWriter;
 import org.apache.geode.internal.util.StopWatch;
+import org.apache.geode.test.junit.categories.ClientServerTest;
 import org.apache.geode.test.junit.categories.IntegrationTest;
 import org.junit.After;
 import org.junit.Before;
@@ -50,7 +51,7 @@ import static org.junit.Assert.*;
 /**
  *
  */
-@Category(IntegrationTest.class)
+@Category({IntegrationTest.class, ClientServerTest.class})
 public class QueueManagerJUnitTest {
 
   private static final String expectedRedundantErrorMsg =
@@ -590,6 +591,11 @@ public class QueueManagerJUnitTest {
 
     public boolean isBalanced() {
       return false;
+    }
+
+    @Override
+    public List<ServerLocation> getAllServers() {
+      return Collections.emptyList();
     }
   }
 

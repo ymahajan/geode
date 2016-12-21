@@ -15,23 +15,23 @@
 
 package org.apache.geode.security;
 
-import static org.apache.geode.distributed.ConfigurationProperties.*;
-import static org.assertj.core.api.Assertions.*;
+import static org.apache.geode.distributed.ConfigurationProperties.SECURITY_MANAGER;
+import static org.apache.geode.test.dunit.Host.getHost;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.util.Properties;
-
+import org.apache.geode.test.dunit.VM;
+import org.apache.geode.test.dunit.internal.JUnit4DistributedTestCase;
+import org.apache.geode.test.dunit.rules.LocatorServerStartupRule;
 import org.apache.geode.test.dunit.rules.ServerStarterRule;
+import org.apache.geode.test.junit.categories.DistributedTest;
+import org.apache.geode.test.junit.categories.SecurityTest;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
-import org.apache.geode.security.templates.SimpleSecurityManager;
-import org.apache.geode.test.dunit.VM;
-import org.apache.geode.test.dunit.internal.JUnit4DistributedTestCase;
-import org.apache.geode.test.dunit.rules.LocatorServerStartupRule;
-import org.apache.geode.test.junit.categories.DistributedTest;
-import org.apache.geode.test.junit.categories.SecurityTest;
+import java.util.Properties;
 
 @Category({DistributedTest.class, SecurityTest.class})
 public class StartServerAuthorizationTest extends JUnit4DistributedTestCase {
@@ -42,8 +42,8 @@ public class StartServerAuthorizationTest extends JUnit4DistributedTestCase {
   @Before
   public void before() throws Exception {
     Properties props = new Properties();
-    props.setProperty(SECURITY_MANAGER, SimpleSecurityManager.class.getName());
-    lsRule.getLocatorVM(0, props);
+    props.setProperty(SECURITY_MANAGER, SimpleTestSecurityManager.class.getName());
+    lsRule.startLocatorVM(0, props);
   }
 
   @Test
@@ -53,10 +53,10 @@ public class StartServerAuthorizationTest extends JUnit4DistributedTestCase {
     props.setProperty("security-username", "user");
     props.setProperty("security-password", "wrongPswd");
 
-    VM server = lsRule.getNodeVM(1);
+    VM server = getHost(0).getVM(1);
     server.invoke(() -> {
       ServerStarterRule serverStarter = new ServerStarterRule(props);
-      assertThatThrownBy(() -> serverStarter.startServer(lsRule.getPort(0)))
+      assertThatThrownBy(() -> serverStarter.startServer(lsRule.getMember(0).getPort()))
           .isInstanceOf(GemFireSecurityException.class).hasMessageContaining(
               "Security check failed. Authentication error. Please check your credentials");
     });
@@ -70,15 +70,13 @@ public class StartServerAuthorizationTest extends JUnit4DistributedTestCase {
     props.setProperty("security-username", "user");
     props.setProperty("security-password", "user");
 
-    VM server = lsRule.getNodeVM(1);
+    VM server = getHost(0).getVM(1);
     server.invoke(() -> {
       ServerStarterRule serverStarter = new ServerStarterRule(props);
-      assertThatThrownBy(() -> serverStarter.startServer(lsRule.getPort(0)))
+      assertThatThrownBy(() -> serverStarter.startServer(lsRule.getMember(0).getPort()))
           .isInstanceOf(GemFireSecurityException.class)
           .hasMessageContaining("user not authorized for CLUSTER:MANAGE");
     });
-
-
   }
 
   @Test
@@ -89,7 +87,7 @@ public class StartServerAuthorizationTest extends JUnit4DistributedTestCase {
     props.setProperty("security-username", "cluster");
     props.setProperty("security-password", "cluster");
 
-    lsRule.getServerVM(1, props);
+    lsRule.startServerVM(1, props);
   }
 
 }

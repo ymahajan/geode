@@ -30,6 +30,7 @@ import org.apache.geode.internal.cache.GemFireCacheImpl;
 import org.apache.geode.internal.cache.tier.sockets.ClientProxyMembershipID;
 import org.apache.geode.management.internal.JmxManagerAdvisor.JmxManagerProfile;
 import org.apache.geode.test.junit.categories.IntegrationTest;
+import org.apache.geode.test.junit.categories.MembershipTest;
 import org.apache.geode.test.junit.runners.CategoryWithParameterizedRunnerFactory;
 import org.junit.After;
 import org.junit.Before;
@@ -44,6 +45,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.function.IntSupplier;
 
 import static org.apache.geode.distributed.ConfigurationProperties.*;
@@ -51,7 +53,9 @@ import static org.apache.geode.internal.AvailablePort.SOCKET;
 import static org.apache.geode.internal.AvailablePort.getRandomAvailablePort;
 import static org.junit.Assert.*;
 
-@Category(IntegrationTest.class)
+import com.jayway.awaitility.Awaitility;
+
+@Category({IntegrationTest.class, MembershipTest.class})
 @RunWith(Parameterized.class)
 @Parameterized.UseParametersRunnerFactory(CategoryWithParameterizedRunnerFactory.class)
 public class LocatorJUnitTest {
@@ -104,10 +108,11 @@ public class LocatorJUnitTest {
     dsprops.setProperty(JMX_MANAGER_START, "true");
     dsprops.setProperty(JMX_MANAGER_HTTP_PORT, "0");
     dsprops.setProperty(ENABLE_CLUSTER_CONFIGURATION, "false");
+    dsprops.setProperty(LOG_FILE, "");
     System.setProperty(DistributionConfig.GEMFIRE_PREFIX + "disableManagement", "false"); // not
                                                                                           // needed
     try {
-      locator = Locator.startLocatorAndDS(port, new File("testJmxManager.log"), dsprops);
+      locator = Locator.startLocatorAndDS(port, null, dsprops);
       List<JmxManagerProfile> alreadyManaging =
           GemFireCacheImpl.getInstance().getJmxManagerAdvisor().adviseAlreadyManaging();
       assertEquals(1, alreadyManaging.size());
@@ -121,8 +126,6 @@ public class LocatorJUnitTest {
   @Test
   public void testBasicInfo() throws Exception {
     locator = Locator.startLocator(port, tmpFile);
-    assertTrue(locator.isPeerLocator());
-    assertFalse(locator.isServerLocator());
     int boundPort = (port == 0) ? locator.getPort() : port;
     TcpClient client = new TcpClient();
     String[] info = client.getInfo(InetAddress.getLocalHost(), boundPort);
@@ -155,33 +158,9 @@ public class LocatorJUnitTest {
         fail("expected " + threadCount + " threads or fewer but found " + Thread.activeCount()
             + ".  Check log file for a thread dump.");
       }
+    } finally {
+      JGroupsMessenger.THROW_EXCEPTION_ON_START_HOOK = false;
     }
-  }
-
-  @Test
-  public void testServerOnly() throws Exception {
-    Properties props = new Properties();
-    props.setProperty(MCAST_PORT, "0");
-    props.setProperty(ConfigurationProperties.ENABLE_CLUSTER_CONFIGURATION, "false");
-    locator = Locator.startLocatorAndDS(port, tmpFile, null, props, false, true, null);
-    assertFalse(locator.isPeerLocator());
-    assertTrue(locator.isServerLocator());
-    Thread.sleep(1000);
-    doServerLocation(locator.getPort());
-  }
-
-  @Test
-  public void testBothPeerAndServer() throws Exception {
-    Properties props = new Properties();
-    props.setProperty(MCAST_PORT, "0");
-    props.setProperty(ConfigurationProperties.ENABLE_CLUSTER_CONFIGURATION, "false");
-
-    locator = Locator.startLocatorAndDS(port, tmpFile, null, props);
-    assertTrue(locator.isPeerLocator());
-    assertTrue(locator.isServerLocator());
-    Thread.sleep(1000);
-    doServerLocation(locator.getPort());
-    locator.stop();
   }
 
   /**

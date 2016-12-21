@@ -37,7 +37,7 @@ import javax.management.remote.JMXConnectorServerFactory;
 import javax.management.remote.JMXServiceURL;
 
 import org.apache.geode.tools.pulse.internal.data.PulseConstants;
-import org.apache.geode.security.templates.SampleSecurityManager;
+import org.apache.geode.security.TestSecurityManager;
 import org.apache.shiro.SecurityUtils;
 import org.apache.shiro.mgt.DefaultSecurityManager;
 import org.apache.shiro.mgt.SecurityManager;
@@ -73,8 +73,8 @@ public class Server {
 
       // set up Shiro Security Manager
       Properties securityProperties = new Properties();
-      securityProperties.setProperty(SampleSecurityManager.SECURITY_JSON, jsonAuthFile);
-      Realm realm = new CustomAuthRealm(SampleSecurityManager.class.getName(), securityProperties);
+      securityProperties.setProperty(TestSecurityManager.SECURITY_JSON, jsonAuthFile);
+      Realm realm = new CustomAuthRealm(TestSecurityManager.class.getName(), securityProperties);
       SecurityManager securityManager = new DefaultSecurityManager(realm);
       SecurityUtils.setSecurityManager(securityManager);
 
@@ -123,12 +123,8 @@ public class Server {
     return jmxSerURL;
   }
 
-  public void stop() {
-    try {
-      cs.stop();
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
+  public void stop() throws IOException {
+    cs.stop();
   }
 
   private synchronized void loadMBeans() {
@@ -194,19 +190,10 @@ public class Server {
     }
   }
 
-  private void addMemberMBean(String m)
-      throws InstanceAlreadyExistsException, MBeanRegistrationException, NotCompliantMBeanException,
-      MalformedObjectNameException, NullPointerException {
+  private void addMemberMBean(String m) throws InstanceAlreadyExistsException,
+      MBeanRegistrationException, NotCompliantMBeanException, MalformedObjectNameException {
     Member m1 = new Member(m);
     mbs.registerMBean(m1, new ObjectName(Member.OBJECT_NAME + ",member=" + m));
-  }
-
-  // For GemFire XD
-  private void addGemFireXDMemberMBean(String xdm)
-      throws InstanceAlreadyExistsException, MBeanRegistrationException, NotCompliantMBeanException,
-      MalformedObjectNameException, NullPointerException {
-    GemFireXDMember xdmo = new GemFireXDMember(xdm);
-    mbs.registerMBean(xdmo, new ObjectName(GemFireXDMember.OBJECT_NAME + ",member=" + xdm));
   }
 
   private void addRegionMBean(String reg)
@@ -236,8 +223,7 @@ public class Server {
     return propVal.split(" ");
   }
 
-  public static Server createServer(int port, String properties, String jsonAuthFile)
-      throws MalformedObjectNameException {
+  public static Server createServer(int port, String properties, String jsonAuthFile) {
     Server s = null;
     try {
       s = new Server(port, properties, jsonAuthFile);

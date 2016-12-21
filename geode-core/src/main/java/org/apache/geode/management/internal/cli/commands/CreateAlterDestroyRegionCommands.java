@@ -31,19 +31,12 @@ import javax.management.MBeanServer;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 
+import org.apache.geode.cache.*;
 import org.springframework.shell.core.annotation.CliAvailabilityIndicator;
 import org.springframework.shell.core.annotation.CliCommand;
 import org.springframework.shell.core.annotation.CliOption;
 
 import org.apache.geode.LogWriter;
-import org.apache.geode.cache.Cache;
-import org.apache.geode.cache.CacheFactory;
-import org.apache.geode.cache.DataPolicy;
-import org.apache.geode.cache.ExpirationAttributes;
-import org.apache.geode.cache.Region;
-import org.apache.geode.cache.RegionAttributes;
-import org.apache.geode.cache.RegionShortcut;
-import org.apache.geode.cache.Scope;
 import org.apache.geode.cache.execute.ResultCollector;
 import org.apache.geode.compression.Compressor;
 import org.apache.geode.distributed.DistributedMember;
@@ -199,6 +192,9 @@ public class CreateAlterDestroyRegionCommands extends AbstractCommandsSupport {
           unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
           specifiedDefaultValue = "true",
           help = CliStrings.CREATE_REGION__OFF_HEAP__HELP) Boolean offHeap,
+      @CliOption(key = CliStrings.CREATE_REGION__PARTITION_RESOLVER,
+          unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
+          help = CliStrings.CREATE_REGION__PARTITION_RESOLVER__HELP) String partitionResolver,
       @CliOption(key = CliStrings.CREATE_REGION__REGIONEXPIRATIONIDLETIME,
           unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
           help = CliStrings.CREATE_REGION__REGIONEXPIRATIONIDLETIME__HELP) Integer regionExpirationIdleTime,
@@ -299,7 +295,7 @@ public class CreateAlterDestroyRegionCommands extends AbstractCommandsSupport {
             asyncEventQueueIds, gatewaySenderIds, concurrencyChecksEnabled, cloningEnabled,
             concurrencyLevel, prColocatedWith, prLocalMaxMemory, prRecoveryDelay, prRedundantCopies,
             prStartupRecoveryDelay, prTotalMaxMemory, prTotalNumBuckets, offHeap, mcastEnabled,
-            regionAttributes);
+            regionAttributes, partitionResolver);
 
 
         if (regionAttributes.getPartitionAttributes() == null
@@ -318,7 +314,7 @@ public class CreateAlterDestroyRegionCommands extends AbstractCommandsSupport {
             asyncEventQueueIds, gatewaySenderIds, concurrencyChecksEnabled, cloningEnabled,
             concurrencyLevel, prColocatedWith, prLocalMaxMemory, prRecoveryDelay, prRedundantCopies,
             prStartupRecoveryDelay, prTotalMaxMemory, prTotalNumBuckets, null, compressor, offHeap,
-            mcastEnabled);
+            mcastEnabled, partitionResolver);
 
         if (!regionShortcut.name().startsWith("PARTITION")
             && regionFunctionArgs.hasPartitionAttributes()) {
@@ -369,7 +365,6 @@ public class CreateAlterDestroyRegionCommands extends AbstractCommandsSupport {
           xmlEntity = regionCreateResult.getXmlEntity();
         }
       }
-
       result = ResultBuilder.buildResult(tabularResultData);
       verifyDistributedRegionMbean(cache, regionPath);
 
@@ -550,7 +545,7 @@ public class CreateAlterDestroyRegionCommands extends AbstractCommandsSupport {
       regionFunctionArgs = new RegionFunctionArgs(regionPath, null, null, false, null, null, null,
           entryIdle, entryTTL, regionIdle, regionTTL, null, null, null, null, cacheListeners,
           cacheLoader, cacheWriter, asyncEventQueueIds, gatewaySenderIds, null, cloningEnabled,
-          null, null, null, null, null, null, null, null, evictionMax, null, null, null);
+          null, null, null, null, null, null, null, null, evictionMax, null, null, null, null);
 
       Set<String> cacheListenersSet = regionFunctionArgs.getCacheListeners();
       if (cacheListenersSet != null && !cacheListenersSet.isEmpty()) {
@@ -905,6 +900,22 @@ public class CreateAlterDestroyRegionCommands extends AbstractCommandsSupport {
         throw new IllegalArgumentException(
             CliStrings.format(CliStrings.CREATE_REGION__MSG__INVALID_COMPRESSOR,
                 new Object[] {regionFunctionArgs.getCompressor()}));
+      }
+    }
+
+    if (regionFunctionArgs.hasPartitionAttributes()) {
+      if (regionFunctionArgs.isPartitionResolverSet()) {
+        String partitionResolverClassName = regionFunctionArgs.getPartitionResolver();
+        try {
+          Class<PartitionResolver> resolverClass = (Class<PartitionResolver>) ClassPathLoader
+              .getLatest().forName(partitionResolverClassName);
+          PartitionResolver partitionResolver = resolverClass.newInstance();
+        } catch (InstantiationException | IllegalAccessException | ClassNotFoundException e) {
+          throw new IllegalArgumentException(
+              CliStrings.format(CliStrings.CREATE_REGION__MSG__INVALID_PARTITION_RESOLVER,
+                  new Object[] {regionFunctionArgs.getCompressor()}),
+              e);
+        }
       }
     }
   }

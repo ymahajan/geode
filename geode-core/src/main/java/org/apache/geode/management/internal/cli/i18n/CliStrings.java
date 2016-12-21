@@ -1006,6 +1006,27 @@ public class CliStrings {
   public static final String CREATE_REGION__OFF_HEAP__HELP =
       "Causes the values of the region to be stored in off-heap memory. The default is on heap.";
 
+  public static final String CREATE_REGION__PARTITION_RESOLVER = "partition-resolver";
+  public static final String CREATE_REGION__PARTITION_RESOLVER__HELP =
+      "The fully-qualified class name of the region's partition resolver";
+  public static final String CREATE_REGION__MSG__PARTITION_RESOLVER_ONLY_FOR_REGION_TYPE_PARTITION =
+      "partition resolver property is only applicable to PARTITION region type";
+
+  public static final String CREATE_REGION_PARTITION_RESOLVER__MSG__COULDNOT_FIND_CLASS_0_SPECIFIED_FOR_1 =
+      "Could not find class \"{0}\" specified for \"{1}\".";
+
+  public static final String CREATE_REGION__MSG__PARTITION_RESOLVER__CLASS_0_SPECIFIED_FOR_1_IS_NOT_OF_EXPECTED_TYPE =
+      "Class \"{0}\" specified for \"{1}\" is not of an expected type.";
+
+  public static final String CREATE_REGION__MSG__PARTITION_RESOLVER__COULDNOT_INSTANTIATE_CLASS_0_SPECIFIED_FOR_1 =
+      "Could not instantiate class \"{0}\" specified for \"{1}\".";
+
+  public static final String CREATE_REGION__MSG__PARTITION_RESOLVER__COULDNOT_ACCESS_CLASS_0_SPECIFIED_FOR_1 =
+      "Could not access class \"{0}\" specified for \"{1}\".";
+
+  public static final String CREATE_REGION__MSG__INVALID_PARTITION_RESOLVER =
+      "{0} is an invalid Partition Resolver.";
+
   /* debug command */
   public static final String DEBUG = "debug";
   public static final String DEBUG__HELP = "Enable/Disable debugging output in GFSH.";
@@ -1406,12 +1427,18 @@ public class CliStrings {
   public static final String EXPORT_STACKTRACE__FILE = "file";
   public static final String EXPORT_STACKTRACE__FILE__HELP =
       "Name of the file to which the stack traces will be written.";
+  public static final String EXPORT_STACKTRACE__FAIL__IF__FILE__PRESENT = "abort-if-file-exists";
+  public static final String EXPORT_STACKTRACE__FAIL__IF__FILE__PRESENT__HELP =
+      "Abort the command if already exists at locator directory";
   public static final String EXPORT_STACKTRACE__MEMBER__NOT__FOUND = "Member not found";
   public static final String EXPORT_STACKTRACE__SUCCESS = "stack-trace(s) exported to file: {0}";
   public static final String EXPORT_STACKTRACE__ERROR = "Error occured while showing stack-traces";
+  public static final String EXPORT_STACKTRACE__ERROR__FILE__PRESENT =
+      "Error occured while exporting stack-traces, file {0} already present";
   public static final String EXPORT_STACKTRACE__HOST = "On host : ";
-  public static final String EXPORT_STACKTRACE__INVALID_FILE_TYPE =
-      "Invalid file extension. File must be a text file (.txt)";
+  public static final String EXPORT_STACKTRACE_WARN_USER =
+      "If file {0} already present at locator directory it will be overwritten, do you want to continue?";
+  public static final String EXPORT_STACKTRACE_MSG_ABORTING = "Aborting export stack-traces";
 
   /* 'gc' command */
   public static final String GC = "gc";
@@ -2207,6 +2234,24 @@ public class CliStrings {
   public static final String START_GATEWAYSENDER__MEMBER = "member";
   public static final String START_GATEWAYSENDER__MEMBER__HELP =
       "Name/Id of the member on which to start the Gateway Sender.";
+
+
+  /* destroy gateway-sender */
+  public static final String DESTROY_GATEWAYSENDER = "destroy gateway-sender";
+  public static final String DESTROY_GATEWAYSENDER__HELP =
+      "Destroy the Gateway Sender on a member or members.";
+  public static final String DESTROY_GATEWAYSENDER__GROUP = "group";
+  public static final String DESTROY_GATEWAYSENDER__GROUP__HELP =
+      "Group(s) of members on which to destroy the Gateway Sender.";
+  public static final String DESTROY_GATEWAYSENDER__MEMBER = "member";
+  public static final String DESTROY_GATEWAYSENDER__MEMBER__HELP =
+      "Name/Id of the member on which to destroy the Gateway Sender.";
+  public static final String DESTROY_GATEWAYSENDER__ID = "id";
+  public static final String DESTROY_GATEWAYSENDER__ID__HELP = "Id of the GatewaySender.";
+  public static final String DESTROY_GATEWAYSENDER__MSG__GATEWAYSENDER_0_DESTROYED_ON_1 =
+      "GatewaySender \"{0}\" destroyed on \"{1}\"";
+
+
 
   /* start gfmon command */
   public static final String START_PULSE = "start pulse";

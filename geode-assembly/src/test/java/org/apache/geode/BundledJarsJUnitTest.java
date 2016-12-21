@@ -25,10 +25,10 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.jar.JarFile;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.apache.geode.test.junit.categories.RestAPITest;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -37,11 +37,11 @@ import org.apache.geode.internal.FileUtil;
 import org.apache.geode.test.junit.categories.IntegrationTest;
 import org.apache.geode.util.test.TestUtil;
 
-@Category(IntegrationTest.class)
+@Category({IntegrationTest.class, RestAPITest.class})
 public class BundledJarsJUnitTest {
 
   private static final String VERSION_PATTERN = "[0-9-_.v]{3,}.*\\.jar$";
-  protected static final String GEMFIRE_HOME = System.getenv("GEMFIRE");
+  protected static final String GEODE_HOME = System.getenv("GEODE_HOME");
   private Set<String> expectedJars;
 
   @Before
@@ -87,16 +87,17 @@ public class BundledJarsJUnitTest {
    * Find all of the jars bundled with the project. Key is the name of the jar, value is the path.
    */
   protected TreeMap<String, String> getBundledJars() {
-    File gemfireHomeDirectory = new File(GEMFIRE_HOME);
+    File geodeHomeDirectory = new File(GEODE_HOME);
 
-    assertTrue("Please set the GEMFIRE environment variable to the product installation directory.",
-        gemfireHomeDirectory.isDirectory());
+    assertTrue(
+        "Please set the GEODE_HOME environment variable to the product installation directory.",
+        geodeHomeDirectory.isDirectory());
 
-    List<File> jars = FileUtil.findAll(gemfireHomeDirectory, ".*\\.jar");
+    List<File> jars = FileUtil.findAll(geodeHomeDirectory, ".*\\.jar");
     TreeMap<String, String> sortedJars = new TreeMap<String, String>();
     jars.stream().forEach(jar -> sortedJars.put(jar.getName(), jar.getPath()));
 
-    List<File> wars = FileUtil.findAll(gemfireHomeDirectory, ".*\\.war");
+    List<File> wars = FileUtil.findAll(geodeHomeDirectory, ".*\\.war");
     TreeSet<File> sortedWars = new TreeSet<File>(wars);
     sortedWars.stream().flatMap(BundledJarsJUnitTest::extractJarNames)
         .forEach(jar -> sortedJars.put(jar.getName(), jar.getPath()));

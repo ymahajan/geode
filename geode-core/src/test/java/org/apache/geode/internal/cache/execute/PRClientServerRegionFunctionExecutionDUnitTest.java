@@ -29,6 +29,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
+import org.apache.geode.test.junit.categories.ClientServerTest;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -66,7 +67,7 @@ import org.apache.geode.test.dunit.WaitCriterion;
 import org.apache.geode.test.junit.categories.DistributedTest;
 import org.apache.geode.test.junit.categories.FlakyTest;
 
-@Category(DistributedTest.class)
+@Category({DistributedTest.class, ClientServerTest.class})
 public class PRClientServerRegionFunctionExecutionDUnitTest extends PRClientServerTestBase {
 
   private static final String TEST_FUNCTION7 = TestFunction.TEST_FUNCTION7;
@@ -140,14 +141,6 @@ public class PRClientServerRegionFunctionExecutionDUnitTest extends PRClientServ
     createScenario_SingleConnection();
     client.invoke(() -> PRClientServerRegionFunctionExecutionDUnitTest
         .serverSingleKeyExecutionOnRegion_SingleConnection());
-  }
-
-  @Ignore("Bug47584")
-  @Test
-  public void testServerSingleKeyExecution_Bug43513_OnServer() {
-    createScenario_SingleConnection();
-    client.invoke(() -> PRClientServerRegionFunctionExecutionDUnitTest
-        .serverSingleKeyExecutionOnServer_SingleConnection());
   }
 
   @Test

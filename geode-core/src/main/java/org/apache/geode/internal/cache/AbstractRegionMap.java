@@ -1553,7 +1553,6 @@ public abstract class AbstractRegionMap implements RegionMap {
     final boolean isRegionReady = !inTokenMode;
     final boolean hasRemoteOrigin = !((TXId) txId).getMemberId().equals(owner.getMyId());
     boolean cbEventInPending = false;
-    lockForTXCacheModification(owner, versionTag);
     IndexManager oqlIndexManager = owner.getIndexManager();
     try {
       RegionEntry re = getEntry(key);
@@ -1820,8 +1819,6 @@ public abstract class AbstractRegionMap implements RegionMap {
     } catch (DiskAccessException dae) {
       owner.handleDiskAccessException(dae);
       throw dae;
-    } finally {
-      releaseTXCacheModificationLock(owner, versionTag);
     }
   }
 
@@ -2355,7 +2352,6 @@ public abstract class AbstractRegionMap implements RegionMap {
     if (oqlIndexManager != null) {
       oqlIndexManager.waitForIndexInit();
     }
-    lockForTXCacheModification(owner, versionTag);
     try {
       if (forceNewEntry) {
         boolean opCompleted = false;
@@ -2584,7 +2580,6 @@ public abstract class AbstractRegionMap implements RegionMap {
       owner.handleDiskAccessException(dae);
       throw dae;
     } finally {
-      releaseTXCacheModificationLock(owner, versionTag);
       if (oqlIndexManager != null) {
         oqlIndexManager.countDownIndexUpdaters();
       }
@@ -3117,7 +3112,6 @@ public abstract class AbstractRegionMap implements RegionMap {
       if (oqlIndexManager != null) {
         oqlIndexManager.waitForIndexInit();
       }
-      lockForTXCacheModification(owner, versionTag);
       try {
         if (hasRemoteOrigin && !isTXHost && !isClientTXOriginator) {
           // If we are not a mirror then only apply the update to existing
@@ -3386,7 +3380,6 @@ public abstract class AbstractRegionMap implements RegionMap {
         owner.handleDiskAccessException(dae);
         throw dae;
       } finally {
-        releaseTXCacheModificationLock(owner, versionTag);
         if (oqlIndexManager != null) {
           oqlIndexManager.countDownIndexUpdaters();
         }
@@ -3695,40 +3688,32 @@ public abstract class AbstractRegionMap implements RegionMap {
 
   }
 
-  /** get version-generation permission from the region's version vector */
-  private void lockForTXCacheModification(LocalRegion owner, VersionTag tag) {
-
+  @Override
+  public void lockRegionForAtomicTX(LocalRegion r) {
     if (armLockTestHook != null)
-      armLockTestHook.beforeLock(owner, null);
+      armLockTestHook.beforeLock(r, null);
 
-    if (!(tag != null && tag.isFromOtherMember())) {
-      RegionVersionVector vector = owner.getVersionVector();
-      if (vector != null && !owner.hasServerProxy()) {
-        vector.lockForCacheModification();
-      }
+    RegionVersionVector vector = r.getVersionVector();
+    if (vector != null) {
+      vector.lockForCacheModification();
     }
 
     if (armLockTestHook != null)
-      armLockTestHook.afterLock(owner, null);
-
+      armLockTestHook.afterLock(r, null);
   }
 
-  /** release version-generation permission from the region's version vector */
-  private void releaseTXCacheModificationLock(LocalRegion owner, VersionTag tag) {
-
+  @Override
+  public void unlockRegionForAtomicTX(LocalRegion r) {
     if (armLockTestHook != null)
-      armLockTestHook.beforeRelease(owner, null);
+      armLockTestHook.beforeRelease(r, null);
 
-    if (!(tag != null && tag.isFromOtherMember())) {
-      RegionVersionVector vector = owner.getVersionVector();
-      if (vector != null && !owner.hasServerProxy()) {
-        vector.releaseCacheModificationLock();
-      }
+    RegionVersionVector vector = r.getVersionVector();
+    if (vector != null) {
+      vector.releaseCacheModificationLock();
     }
 
     if (armLockTestHook != null)
-      armLockTestHook.afterRelease(owner, null);
-
+      armLockTestHook.afterRelease(r, null);
   }
 
   /**

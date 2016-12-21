@@ -19,12 +19,14 @@ import org.junit.Test;
 
 import static org.junit.Assert.*;
 
+import com.jayway.awaitility.Awaitility;
 import org.apache.geode.test.dunit.cache.internal.JUnit4CacheTestCase;
 import org.apache.geode.test.dunit.internal.JUnit4DistributedTestCase;
 import org.apache.geode.test.junit.categories.DistributedTest;
 import org.apache.geode.test.junit.categories.FlakyTest;
 
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
@@ -36,7 +38,6 @@ import org.apache.geode.internal.cache.GemFireCacheImpl;
 import org.apache.geode.internal.cache.wan.WANTestBase;
 import org.apache.geode.management.internal.MBeanJMXAdapter;
 import org.apache.geode.test.dunit.Host;
-import org.apache.geode.test.dunit.LogWriterUtils;
 import org.apache.geode.test.dunit.SerializableRunnable;
 import org.apache.geode.test.dunit.VM;
 
@@ -52,15 +53,22 @@ public class WANManagementDUnitTest extends ManagementTestBase {
 
   private static final long serialVersionUID = 1L;
 
-
-  public static MBeanServer mbeanServer = MBeanJMXAdapter.mbeanServer;
-
   public WANManagementDUnitTest() throws Exception {
     super();
   }
 
   @Test
-  public void testMBeanCallback() throws Exception {
+  public void testMBeanCallbackSerial() throws Exception {
+    testMBeanCallback(false);
+  }
+
+  @Test
+  public void testMBeanCallbackParallel() throws Exception {
+    testMBeanCallback(true);
+
+  }
+
+  public void testMBeanCallback(boolean parallel) throws Exception {
 
     VM nyLocator = getManagedNodeList().get(0);
     VM nyReceiver = getManagedNodeList().get(1);
@@ -79,6 +87,7 @@ public class WANManagementDUnitTest extends ManagementTestBase {
     managing.invoke(() -> WANTestBase.createManagementCache(punePort));
     startManagingNode(managing);
 
+
     // keep a larger batch to minimize number of exception occurrences in the
     // log
     puneSender
@@ -92,6 +101,7 @@ public class WANManagementDUnitTest extends ManagementTestBase {
     managing.invoke(() -> WANTestBase.createPartitionedRegion(getTestMethodName() + "_PR", "pn", 1,
         100, false));
 
+
     nyReceiver.invoke(() -> WANTestBase.createCache(nyPort));
     nyReceiver.invoke(() -> WANTestBase.createPartitionedRegion(getTestMethodName() + "_PR", null,
         1, 100, false));
@@ -103,10 +113,8 @@ public class WANManagementDUnitTest extends ManagementTestBase {
     puneSender.invoke(() -> WANTestBase.waitForSenderRunningState("pn"));
     managing.invoke(() -> WANTestBase.waitForSenderRunningState("pn"));
 
-
-
-    checkSenderMBean(puneSender, getTestMethodName() + "_PR");
-    checkSenderMBean(managing, getTestMethodName() + "_PR");
+    checkSenderMBean(puneSender, getTestMethodName() + "_PR", true);
+    checkSenderMBean(managing, getTestMethodName() + "_PR", true);
 
     checkReceiverMBean(nyReceiver);
 
@@ -119,6 +127,10 @@ public class WANManagementDUnitTest extends ManagementTestBase {
     checkProxySender(managing, puneMember);
     checkSenderNavigationAPIS(managing, puneMember);
 
+    nyReceiver.invoke(() -> WANTestBase.stopReceivers());
+
+    checkSenderMBean(puneSender, getTestMethodName() + "_PR", false);
+    checkSenderMBean(managing, getTestMethodName() + "_PR", false);
   }
 
   @Category(FlakyTest.class) // GEODE-1603
@@ -159,8 +171,7 @@ public class WANManagementDUnitTest extends ManagementTestBase {
     managing.invoke(() -> WANTestBase.createManagementCache(nyPort));
     startManagingNode(managing);
 
-
-    checkSenderMBean(puneSender, getTestMethodName() + "_PR");
+    checkSenderMBean(puneSender, getTestMethodName() + "_PR", true);
     checkReceiverMBean(nyReceiver);
 
     DistributedMember nyMember =
@@ -168,8 +179,6 @@ public class WANManagementDUnitTest extends ManagementTestBase {
 
     checkProxyReceiver(managing, nyMember);
     checkReceiverNavigationAPIS(managing, nyMember);
-
-
   }
 
 
@@ -187,18 +196,14 @@ public class WANManagementDUnitTest extends ManagementTestBase {
     Integer nyPort =
         (Integer) nyLocator.invoke(() -> WANTestBase.createFirstRemoteLocator(12, punePort));
 
-
-
     puneSender.invoke(() -> WANTestBase.createCache(punePort));
     managing.invoke(() -> WANTestBase.createManagementCache(punePort));
     startManagingNode(managing);
-
 
     puneSender.invoke(() -> WANTestBase.createAsyncEventQueue("pn", false, 100, 100, false, false,
         "puneSender", false));
     managing.invoke(() -> WANTestBase.createAsyncEventQueue("pn", false, 100, 100, false, false,
         "managing", false));
-
 
     puneSender.invoke(() -> WANTestBase
         .createReplicatedRegionWithAsyncEventQueue(getTestMethodName() + "_RR", "pn", false));
@@ -212,7 +217,6 @@ public class WANManagementDUnitTest extends ManagementTestBase {
 
     checkAsyncQueueMBean(puneSender);
     checkAsyncQueueMBean(managing);
-
 
     DistributedMember puneMember =
         (DistributedMember) puneSender.invoke(() -> WANManagementDUnitTest.getMember());
@@ -308,11 +312,11 @@ public class WANManagementDUnitTest extends ManagementTestBase {
 
         if (service.isManager()) {
           DistributedSystemMXBean dsBean = service.getDistributedSystemMXBean();
-          Map<String, Boolean> dsMap = dsBean.viewRemoteClusterStatus();
-
-          LogWriterUtils.getLogWriter()
-              .info("<ExpectedString> Ds Map is: " + dsMap + "</ExpectedString> ");
-
+          Awaitility.await().atMost(1, TimeUnit.MINUTES).until(() -> {
+            Map<String, Boolean> dsMap = dsBean.viewRemoteClusterStatus();
+            dsMap.entrySet().stream()
+                .forEach(entry -> assertTrue("Should be true " + entry.getKey(), entry.getValue()));
+          });
         }
 
       }
@@ -392,7 +396,6 @@ public class WANManagementDUnitTest extends ManagementTestBase {
   }
 
 
-
   /**
    * Checks whether a GatewayReceiverMBean is created or not
    * 
@@ -417,7 +420,7 @@ public class WANManagementDUnitTest extends ManagementTestBase {
    * @param vm reference to VM
    */
   @SuppressWarnings("serial")
-  protected void checkSenderMBean(final VM vm, final String regionPath) {
+  protected void checkSenderMBean(final VM vm, final String regionPath, boolean connected) {
     SerializableRunnable checkMBean = new SerializableRunnable("Check Sender MBean") {
       public void run() {
         Cache cache = GemFireCacheImpl.getInstance();
@@ -425,7 +428,8 @@ public class WANManagementDUnitTest extends ManagementTestBase {
 
         GatewaySenderMXBean bean = service.getLocalGatewaySenderMXBean("pn");
         assertNotNull(bean);
-        assertTrue(bean.isConnected());
+        Awaitility.await().atMost(1, TimeUnit.MINUTES)
+            .until(() -> assertEquals(connected, bean.isConnected()));
 
         ObjectName regionBeanName = service.getRegionMBeanName(
             cache.getDistributedSystem().getDistributedMember(), "/" + regionPath);

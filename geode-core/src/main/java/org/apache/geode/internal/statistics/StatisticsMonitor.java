@@ -14,8 +14,8 @@
  */
 package org.apache.geode.internal.statistics;
 
-import java.util.ArrayList;
-import java.util.Collections;
+import org.apache.geode.internal.concurrent.ConcurrentHashSet;
+
 import java.util.List;
 
 /**
@@ -29,74 +29,58 @@ public abstract class StatisticsMonitor {
 
   private final Object mutex = new Object();
 
-  private volatile List<StatisticsListener> listeners = Collections.<StatisticsListener>emptyList();
+  private final ConcurrentHashSet<StatisticsListener> listeners = new ConcurrentHashSet<>();
 
-  private volatile List<StatisticId> statisticIds = Collections.<StatisticId>emptyList();
+  private final ConcurrentHashSet<StatisticId> statisticIds = new ConcurrentHashSet<>();
 
   public StatisticsMonitor() {}
 
-  public StatisticsMonitor addStatistic(StatisticId statId) {
+  public StatisticsMonitor addStatistic(final StatisticId statId) {
     if (statId == null) {
       throw new NullPointerException("StatisticId is null");
     }
-    synchronized (this.mutex) {
-      List<StatisticId> oldStatisticIds = this.statisticIds;
-      if (!oldStatisticIds.contains(statId)) {
-        List<StatisticId> newStatisticIds = new ArrayList<StatisticId>(oldStatisticIds);
-        newStatisticIds.add(statId);
-        this.statisticIds = Collections.unmodifiableList(newStatisticIds);
-      }
+    if (!this.statisticIds.contains(statId)) {
+      this.statisticIds.add(statId);
     }
     return this;
   }
 
-  public StatisticsMonitor removeStatistic(StatisticId statId) {
+  public StatisticsMonitor removeStatistic(final StatisticId statId) {
     if (statId == null) {
       throw new NullPointerException("StatisticId is null");
     }
-    synchronized (this.mutex) {
-      List<StatisticId> oldStatisticIds = this.statisticIds;
-      if (oldStatisticIds.contains(statId)) {
-        List<StatisticId> newStatisticIds = new ArrayList<StatisticId>(oldStatisticIds);
-        newStatisticIds.remove(statId);
-        this.statisticIds = Collections.unmodifiableList(newStatisticIds);
-      }
+    if (this.statisticIds.contains(statId)) {
+      this.statisticIds.remove(statId);
     }
     return this;
   }
 
-  public final void addListener(StatisticsListener listener) {
+  public void addListener(final StatisticsListener listener) {
     if (listener == null) {
       throw new NullPointerException("StatisticsListener is null");
     }
     synchronized (this.mutex) {
-      List<StatisticsListener> oldListeners = this.listeners;
-      if (!oldListeners.contains(listener)) {
-        List<StatisticsListener> newListeners = new ArrayList<StatisticsListener>(oldListeners);
-        newListeners.add(listener);
-        this.listeners = Collections.unmodifiableList(newListeners);
+      if (!this.listeners.contains(listener)) {
+        this.listeners.add(listener);
         getStatMonitorHandler().addMonitor(this);
       }
     }
   }
 
-  public final void removeListener(StatisticsListener listener) {
+  public void removeListener(final StatisticsListener listener) {
     if (listener == null) {
       throw new NullPointerException("StatisticsListener is null");
     }
     synchronized (this.mutex) {
-      List<StatisticsListener> oldListeners = this.listeners;
-      if (oldListeners.contains(listener)) {
-        List<StatisticsListener> newListeners = new ArrayList<StatisticsListener>(oldListeners);
-        newListeners.remove(listener);
-        if (newListeners.isEmpty()) {
+      if (this.listeners.contains(listener)) {
+        this.listeners.remove(listener);
+        if (this.listeners.isEmpty()) {
           try {
             getStatMonitorHandler().removeMonitor(this);
           } catch (IllegalStateException ignore) {
             // sample collector and handlers were closed (ok on removal)
           }
         }
-        this.listeners = Collections.unmodifiableList(newListeners);
       }
     }
   }
@@ -108,26 +92,25 @@ public abstract class StatisticsMonitor {
    * @param millisTimeStamp the real time in millis of the sample
    * @param resourceInstances resources with one or more updated values
    */
-  protected void monitor(long millisTimeStamp, List<ResourceInstance> resourceInstances) {
+  protected void monitor(final long millisTimeStamp,
+      final List<ResourceInstance> resourceInstances) {
     monitorStatisticIds(millisTimeStamp, resourceInstances);
   }
 
-  private final void monitorStatisticIds(long millisTimeStamp,
-      List<ResourceInstance> resourceInstances) {
-    List<StatisticId> statisticIdsToMonitor = statisticIds;
-    if (!statisticIdsToMonitor.isEmpty()) {
+  private void monitorStatisticIds(final long millisTimeStamp,
+      final List<ResourceInstance> resourceInstances) {
+    if (!this.statisticIds.isEmpty()) {
       // TODO:
     }
   }
 
-  protected final void notifyListeners(StatisticsNotification notification) {
-    List<StatisticsListener> listenersToNotify = this.listeners;
-    for (StatisticsListener listener : listenersToNotify) {
+  protected void notifyListeners(final StatisticsNotification notification) {
+    for (StatisticsListener listener : this.listeners) {
       listener.handleNotification(notification);
     }
   }
 
-  protected final Object mutex() {
+  protected Object mutex() {
     return this.mutex;
   }
 
@@ -136,7 +119,7 @@ public abstract class StatisticsMonitor {
   }
 
   /** For testing only */
-  List<StatisticsListener> getStatisticsListenersSnapshot() {
+  ConcurrentHashSet<StatisticsListener> getStatisticsListenersSnapshot() {
     return this.listeners;
   }
 
@@ -154,7 +137,9 @@ public abstract class StatisticsMonitor {
     return sb.toString();
   }
 
-  /** Override to append to toString() */
+  /**
+   * Override to append to toString()
+   */
   protected StringBuilder appendToString() {
     return null;
   }

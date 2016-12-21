@@ -23,6 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.apache.geode.test.junit.categories.MembershipTest;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -31,7 +32,7 @@ import org.apache.geode.distributed.internal.DistributionManager;
 import org.apache.geode.internal.net.SocketCreator;
 import org.apache.geode.test.junit.categories.UnitTest;
 
-@Category(UnitTest.class)
+@Category({UnitTest.class, MembershipTest.class})
 public class NetViewJUnitTest {
 
   private List<InternalDistributedMember> members;
@@ -190,6 +191,22 @@ public class NetViewJUnitTest {
     }
 
     assertEquals(100, view.getNewMembers(copy).size());
+  }
+
+  @Test
+  public void testNullPublicKeysNotRetained() throws Exception {
+    NetView view = new NetView(members.get(0), 2, new ArrayList<>(members));
+    setFailureDetectionPorts(view);
+
+    NetView newView = new NetView(view, 3);
+    for (InternalDistributedMember member : view.getMembers()) {
+      view.setPublicKey(member, null);
+    }
+    newView.setPublicKeys(view);
+    for (InternalDistributedMember member : view.getMembers()) {
+      assertNull(newView.getPublicKey(member));
+      assertNull(view.getPublicKey(member));
+    }
   }
 
   /**

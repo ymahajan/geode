@@ -2802,6 +2802,17 @@ public class WANTestBase extends JUnit4DistributedTestCase {
     }
   }
 
+  public static void validateRegionSizeOnly_PDX(String regionName, final int regionSize) {
+    final Region r = cache.getRegion(Region.SEPARATOR + regionName);
+    assertNotNull(r);
+    Awaitility.await().atMost(200, TimeUnit.SECONDS)
+        .until(
+            () -> assertEquals(
+                "Expected region entries: " + regionSize + " but actual entries: "
+                    + r.keySet().size() + " present region keyset " + r.keySet(),
+                true, (regionSize <= r.keySet().size())));
+  }
+
   public static void validateQueueSizeStat(String id, final int queueSize) {
     final AbstractGatewaySender sender = (AbstractGatewaySender) cache.getGatewaySender(id);
     Awaitility.await().atMost(30, TimeUnit.SECONDS)
@@ -3102,6 +3113,10 @@ public class WANTestBase extends JUnit4DistributedTestCase {
   }
 
   public static Integer getQueueContentSize(final String senderId) {
+    return getQueueContentSize(senderId, false);
+  }
+
+  public static Integer getQueueContentSize(final String senderId, boolean includeSecondary) {
     Set<GatewaySender> senders = cache.getGatewaySenders();
     GatewaySender sender = null;
     for (GatewaySender s : senders) {
@@ -3112,6 +3127,9 @@ public class WANTestBase extends JUnit4DistributedTestCase {
     }
 
     if (!sender.isParallel()) {
+      if (includeSecondary) {
+        fail("Not implemented yet");
+      }
       final Set<RegionQueue> queues = ((AbstractGatewaySender) sender).getQueues();
       int size = 0;
       for (RegionQueue q : queues) {
@@ -3121,8 +3139,19 @@ public class WANTestBase extends JUnit4DistributedTestCase {
     } else if (sender.isParallel()) {
       RegionQueue regionQueue = null;
       regionQueue = ((AbstractGatewaySender) sender).getQueues().toArray(new RegionQueue[1])[0];
-      return regionQueue.getRegion().size();
+      if (regionQueue instanceof ConcurrentParallelGatewaySenderQueue) {
+        return ((ConcurrentParallelGatewaySenderQueue) regionQueue).localSize(includeSecondary);
+      } else if (regionQueue instanceof ParallelGatewaySenderQueue) {
+        return ((ParallelGatewaySenderQueue) regionQueue).localSize(includeSecondary);
+      } else {
+        if (includeSecondary) {
+          fail("Not Implemented yet");
+        }
+        regionQueue = ((AbstractGatewaySender) sender).getQueues().toArray(new RegionQueue[1])[0];
+        return regionQueue.getRegion().size();
+      }
     }
+    fail("Not yet implemented?");
     return 0;
   }
 
@@ -3306,23 +3335,18 @@ public class WANTestBase extends JUnit4DistributedTestCase {
     }
   }
 
-  public static void verifyRegionQueueNotEmptyForConcurrentSender(String senderId) {
+  public static void waitForConcurrentSerialSenderQueueToDrain(String senderId) {
     Set<GatewaySender> senders = cache.getGatewaySenders();
-    GatewaySender sender = null;
-    for (GatewaySender s : senders) {
-      if (s.getId().equals(senderId)) {
-        sender = s;
-        break;
-      }
-    }
+    GatewaySender sender =
+        senders.stream().filter(s -> s.getId().equals(senderId)).findFirst().get();
 
-    if (!sender.isParallel()) {
+    Awaitility.await().atMost(1, TimeUnit.MINUTES).until(() -> {
       Set<RegionQueue> queues =
           ((AbstractGatewaySender) sender).getQueuesForConcurrentSerialGatewaySender();
       for (RegionQueue q : queues) {
-        assertTrue(q.size() > 0);
+        assertEquals(0, q.size());
       }
-    }
+    });
   }
 
   /**
@@ -3394,7 +3418,7 @@ public class WANTestBase extends JUnit4DistributedTestCase {
         break;
       }
     }
-    ((AbstractGatewaySender) sender).destroy();
+    sender.destroy();
   }
 
   public static void verifySenderDestroyed(String senderId, boolean isParallel) {

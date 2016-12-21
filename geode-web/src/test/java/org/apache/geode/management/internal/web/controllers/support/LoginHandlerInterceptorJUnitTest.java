@@ -54,12 +54,14 @@ public class LoginHandlerInterceptorJUnitTest {
     mockContext = new Mockery();
     mockContext.setImposteriser(ClassImposteriser.INSTANCE);
     mockContext.setThreadingPolicy(new Synchroniser());
+    LoginHandlerInterceptor.getEnvironment().clear();
   }
 
   @After
   public void tearDown() {
     mockContext.assertIsSatisfied();
     mockContext = null;
+    LoginHandlerInterceptor.getEnvironment().clear();
   }
 
   private String createEnvironmentVariable(final String name) {
@@ -146,7 +148,7 @@ public class LoginHandlerInterceptorJUnitTest {
 
       requestParametersOne.put("param", "one");
       requestParametersOne.put(createEnvironmentVariable("STAGE"), "test");
-      requestParametersOne.put(createEnvironmentVariable("GEMFIRE"), "/path/to/gemfire/700");
+      requestParametersOne.put(createEnvironmentVariable("GEODE_HOME"), "/path/to/gemfire/700");
 
       mockHttpRequestOne = mockContext.mock(HttpServletRequest.class,
           "testHandlerInterceptorThreadSafety.HttpServletRequest.1");
@@ -159,8 +161,9 @@ public class LoginHandlerInterceptorJUnitTest {
           will(returnValue(enumeration(requestHeaders.keySet().iterator())));
           oneOf(mockHttpRequestOne).getParameter(with(equal(createEnvironmentVariable("STAGE"))));
           will(returnValue(requestParametersOne.get(createEnvironmentVariable("STAGE"))));
-          oneOf(mockHttpRequestOne).getParameter(with(equal(createEnvironmentVariable("GEMFIRE"))));
-          will(returnValue(requestParametersOne.get(createEnvironmentVariable("GEMFIRE"))));
+          oneOf(mockHttpRequestOne)
+              .getParameter(with(equal(createEnvironmentVariable("GEODE_HOME"))));
+          will(returnValue(requestParametersOne.get(createEnvironmentVariable("GEODE_HOME"))));
         }
       });
 
@@ -171,7 +174,7 @@ public class LoginHandlerInterceptorJUnitTest {
 
       requestParametersTwo.put("parameter", "two");
       requestParametersTwo.put(createEnvironmentVariable("HOST"), "localhost");
-      requestParametersTwo.put(createEnvironmentVariable("GEMFIRE"), "/path/to/gemfire/75");
+      requestParametersTwo.put(createEnvironmentVariable("GEODE_HOME"), "/path/to/gemfire/75");
 
       mockContext.checking(new Expectations() {
         {
@@ -181,8 +184,9 @@ public class LoginHandlerInterceptorJUnitTest {
           will(returnValue(enumeration(requestHeaders.keySet().iterator())));
           oneOf(mockHttpRequestTwo).getParameter(with(equal(createEnvironmentVariable("HOST"))));
           will(returnValue(requestParametersTwo.get(createEnvironmentVariable("HOST"))));
-          oneOf(mockHttpRequestTwo).getParameter(with(equal(createEnvironmentVariable("GEMFIRE"))));
-          will(returnValue(requestParametersTwo.get(createEnvironmentVariable("GEMFIRE"))));
+          oneOf(mockHttpRequestTwo)
+              .getParameter(with(equal(createEnvironmentVariable("GEODE_HOME"))));
+          will(returnValue(requestParametersTwo.get(createEnvironmentVariable("GEODE_HOME"))));
         }
       });
 
@@ -207,7 +211,7 @@ public class LoginHandlerInterceptorJUnitTest {
       assertFalse(env.containsKey("parameter"));
       assertFalse(env.containsKey("HOST"));
       assertEquals("test", env.get("STAGE"));
-      assertEquals("/path/to/gemfire/700", env.get("GEMFIRE"));
+      assertEquals("/path/to/gemfire/700", env.get("GEODE_HOME"));
 
       waitForTick(2);
 
@@ -219,7 +223,7 @@ public class LoginHandlerInterceptorJUnitTest {
       assertFalse(env.containsKey("parameter"));
       assertFalse(env.containsKey("HOST"));
       assertEquals("test", env.get("STAGE"));
-      assertEquals("/path/to/gemfire/700", env.get("GEMFIRE"));
+      assertEquals("/path/to/gemfire/700", env.get("GEODE_HOME"));
 
       waitForTick(4);
 
@@ -231,7 +235,7 @@ public class LoginHandlerInterceptorJUnitTest {
       assertFalse(env.containsKey("parameter"));
       assertFalse(env.containsKey("HOST"));
       assertEquals("test", env.get("STAGE"));
-      assertEquals("/path/to/gemfire/700", env.get("GEMFIRE"));
+      assertEquals("/path/to/gemfire/700", env.get("GEODE_HOME"));
 
       handlerInterceptor.afterCompletion(mockHttpRequestOne, null, null, null);
 
@@ -260,7 +264,7 @@ public class LoginHandlerInterceptorJUnitTest {
       assertFalse(env.containsKey("param"));
       assertFalse(env.containsKey("STAGE"));
       assertEquals("localhost", env.get("HOST"));
-      assertEquals("/path/to/gemfire/75", env.get("GEMFIRE"));
+      assertEquals("/path/to/gemfire/75", env.get("GEODE_HOME"));
 
       waitForTick(3);
 

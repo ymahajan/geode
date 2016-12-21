@@ -177,7 +177,7 @@ public abstract class BaseCommandQuery extends BaseCommand {
 
         // Get the collection type (which includes the element type)
         // (used to generate the appropriate instance on the client)
-        collectionType = selectResults.getCollectionType();
+        collectionType = getCollectionType(selectResults);
         isStructs = collectionType.getElementType().isStructType();
 
         // Check if the Query is from CQ execution.
@@ -271,6 +271,7 @@ public abstract class BaseCommandQuery extends BaseCommand {
             servConn.getName(), MessageType.getString(msg.getMessageType()), servConn.getProxyID());
       }
       servConn.setFlagProcessMessagesAsFalse();
+      servConn.setClientDisconnectedException(se);
       return false;
     } catch (Exception e) {
       // If an interrupted exception is thrown , rethrow it
@@ -298,6 +299,10 @@ public abstract class BaseCommandQuery extends BaseCommand {
 
     stats.incWriteQueryResponseTime(DistributionStats.getStatTime() - start);
     return true;
+  }
+
+  protected CollectionType getCollectionType(SelectResults results) {
+    return results.getCollectionType();
   }
 
   private boolean sendCqResultsWithKey(ServerConnection servConn) {

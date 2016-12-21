@@ -20,18 +20,17 @@ import static org.junit.Assert.*;
 
 import java.util.Properties;
 
+import org.apache.geode.test.dunit.rules.LocatorServerStartupRule;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 import org.apache.geode.distributed.DistributedSystem;
 import org.apache.geode.internal.i18n.LocalizedStrings;
-import org.apache.geode.security.templates.SampleSecurityManager;
-import org.apache.geode.security.templates.SimpleSecurityManager;
 import org.apache.geode.test.dunit.IgnoredException;
 import org.apache.geode.test.dunit.internal.JUnit4DistributedTestCase;
-import org.apache.geode.test.dunit.rules.LocatorServerStartupRule;
 import org.apache.geode.test.dunit.rules.ServerStarterRule;
 import org.apache.geode.test.junit.categories.DistributedTest;
 import org.apache.geode.test.junit.categories.SecurityTest;
@@ -50,10 +49,10 @@ public class SecurityWithoutClusterConfigDUnitTest extends JUnit4DistributedTest
     IgnoredException
         .addIgnoredException(LocalizedStrings.GEMFIRE_CACHE_SECURITY_MISCONFIGURATION_2.toString());
     Properties props = new Properties();
-    props.setProperty(SECURITY_MANAGER, SimpleSecurityManager.class.getName());
+    props.setProperty(SECURITY_MANAGER, SimpleTestSecurityManager.class.getName());
     props.setProperty(SECURITY_POST_PROCESSOR, PDXPostProcessor.class.getName());
     props.setProperty(ENABLE_CLUSTER_CONFIGURATION, "false");
-    lsRule.getLocatorVM(0, props);
+    lsRule.startLocatorVM(0, props);
   }
 
   @Test
@@ -66,19 +65,19 @@ public class SecurityWithoutClusterConfigDUnitTest extends JUnit4DistributedTest
     // the following are needed for peer-to-peer authentication
     props.setProperty("security-username", "cluster");
     props.setProperty("security-password", "cluster");
-    props.setProperty("security-manager", SampleSecurityManager.class.getName());
+    props.setProperty("security-manager", TestSecurityManager.class.getName());
     props.setProperty("use-cluster-configuration", "true");
 
     // initial security properties should only contain initial set of values
     ServerStarterRule serverStarter = new ServerStarterRule(props);
-    serverStarter.startServer(lsRule.getPort(0));
+    serverStarter.startServer(lsRule.getMember(0).getPort());
     DistributedSystem ds = serverStarter.cache.getDistributedSystem();
     assertEquals(3, ds.getSecurityProperties().size());
 
     // after cache is created, we got the security props passed in by cluster config
     Properties secProps = ds.getSecurityProperties();
     assertEquals(3, secProps.size());
-    assertEquals(SampleSecurityManager.class.getName(), secProps.getProperty("security-manager"));
+    assertEquals(TestSecurityManager.class.getName(), secProps.getProperty("security-manager"));
     assertFalse(secProps.containsKey("security-post-processor"));
   }
 }

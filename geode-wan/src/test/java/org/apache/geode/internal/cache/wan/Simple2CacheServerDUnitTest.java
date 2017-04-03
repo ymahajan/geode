@@ -151,19 +151,19 @@ public class Simple2CacheServerDUnitTest extends WANTestBase {
   }
 
   public static void setCacheClientProxyTestHook() {
-    CacheClientProxy.testHook = new CacheClientProxy.TestHook() {
+    CacheClientProxy.setTestHook(new CacheClientProxy.TestHook() {
       @Override
       public void doTestHook(String spot) {
         if (spot.equals("CLIENT_RECONNECTED")) {
           afterProxyReinitialized++;
         }
       }
-    };
+    });
   }
 
   public static void checkResultAndUnsetCacheClientProxyTestHook() {
     // Reinitialize only happened once
-    CacheClientProxy.testHook = null;
+    CacheClientProxy.unsetTestHook();
     assertEquals(1, afterProxyReinitialized);
     afterProxyReinitialized = 0;
   }

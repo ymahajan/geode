@@ -62,13 +62,9 @@ import org.apache.geode.test.dunit.cache.internal.JUnit4CacheTestCase;
 import org.apache.geode.test.dunit.standalone.VersionManager;
 import org.apache.geode.test.junit.categories.ClientServerTest;
 import org.apache.geode.test.junit.categories.DistributedTest;
-import org.apache.geode.test.junit.runners.CategoryWithParameterizedRunnerFactory;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.Properties;
 import java.util.Set;
@@ -1014,7 +1010,8 @@ public class ClientServerMiscDUnitTest extends JUnit4CacheTestCase {
       while (iter_prox.hasNext()) {
         CacheClientProxy ccp = (CacheClientProxy) iter_prox.next();
         // CCP should not contain region1
-        Set akr = ccp.cils[RegisterInterestTracker.interestListIndex].regions;
+        Set akr = ccp
+            .getClientInterestListForTesting()[RegisterInterestTracker.interestListIndex].regions;
         assertNotNull(akr);
         assertTrue(!akr.contains(Region.SEPARATOR + REGION_NAME1));
         // CCP should contain region2
@@ -1352,7 +1349,7 @@ public class ClientServerMiscDUnitTest extends JUnit4CacheTestCase {
    *
    */
   public static void unsetSlowDispatcherFlag() {
-    CacheClientProxy.isSlowStartForTesting = false;
+    CacheClientProxy.unsetSlowStartForTesting();
   }
 
 }

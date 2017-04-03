@@ -166,7 +166,7 @@ public class ClientServerForceInvalidateDUnitTest extends JUnit4CacheTestCase {
   }
 
   private static void installObserver() {
-    CacheClientProxy.AFTER_MESSAGE_CREATION_FLAG = true;
+    CacheClientProxy.setAfterMessageCreationForTesting();
     ClientServerObserverHolder.setInstance(new DelaySendingEvent());
   }
 
@@ -176,7 +176,7 @@ public class ClientServerForceInvalidateDUnitTest extends JUnit4CacheTestCase {
   }
 
   private static void cleanupObserver() {
-    CacheClientProxy.AFTER_MESSAGE_CREATION_FLAG = false;
+    CacheClientProxy.unsetAfterMessageCreationForTesting();
     ClientServerObserverHolder.setInstance(new ClientServerObserverAdapter());
   }
 

@@ -471,7 +471,7 @@ public class HAStartupAndFailoverDUnitTest extends JUnit4DistributedTestCase {
           String excuse;
 
           public boolean done() {
-            return proxy._messageDispatcher.isAlive();
+            return proxy.getMessageDispatcherForTesting().isAlive();
           }
 
           public String description() {
@@ -529,7 +529,7 @@ public class HAStartupAndFailoverDUnitTest extends JUnit4DistributedTestCase {
       if (iter_prox.hasNext()) {
         CacheClientProxy proxy = (CacheClientProxy) iter_prox.next();
         assertFalse("Dispatcher on secondary should not be alive",
-            proxy._messageDispatcher.isAlive());
+            proxy.getMessageDispatcherForTesting().isAlive());
       }
     } catch (Exception ex) {
       fail("while setting verifyDispatcherIsNotAlive  " + ex);

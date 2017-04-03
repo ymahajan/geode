@@ -62,6 +62,7 @@ import org.apache.geode.CancelCriterion;
 import org.apache.geode.DataSerializer;
 import org.apache.geode.GemFireConfigException;
 import org.apache.geode.InternalGemFireException;
+import org.apache.geode.LogWriter;
 import org.apache.geode.cache.GatewayConfigurationException;
 import org.apache.geode.cache.client.PoolFactory;
 import org.apache.geode.cache.client.ServerRefusedConnectionException;
@@ -1669,8 +1670,8 @@ public class HandShake implements ClientHandShake {
    * not
    */
   public static Object verifyCredentials(String authenticatorMethod, Properties credentials,
-      Properties securityProperties, InternalLogWriter logWriter,
-      InternalLogWriter securityLogWriter, DistributedMember member)
+      Properties securityProperties, LogWriter logWriter, LogWriter securityLogWriter,
+      DistributedMember member)
       throws AuthenticationRequiredException, AuthenticationFailedException {
 
     if (!AcceptorImpl.isAuthenticationRequired()) {
@@ -1702,8 +1703,8 @@ public class HandShake implements ClientHandShake {
 
     String methodName = this.system.getProperties().getProperty(SECURITY_CLIENT_AUTHENTICATOR);
     return verifyCredentials(methodName, this.credentials, this.system.getSecurityProperties(),
-        (InternalLogWriter) this.system.getLogWriter(),
-        (InternalLogWriter) this.system.getSecurityLogWriter(), this.id.getDistributedMember());
+        this.system.getLogWriter(), this.system.getSecurityLogWriter(),
+        this.id.getDistributedMember());
   }
 
   public void sendCredentialsForWan(OutputStream out, InputStream in) {
@@ -1731,8 +1732,7 @@ public class HandShake implements ClientHandShake {
     String authenticator = this.system.getProperties().getProperty(SECURITY_CLIENT_AUTHENTICATOR);
     Properties peerWanProps = readCredentials(dis, dos, this.system);
     verifyCredentials(authenticator, peerWanProps, this.system.getSecurityProperties(),
-        (InternalLogWriter) this.system.getLogWriter(),
-        (InternalLogWriter) this.system.getSecurityLogWriter(), member);
+        this.system.getLogWriter(), this.system.getSecurityLogWriter(), member);
   }
 
   private static int getKeySize(String skAlgo) {

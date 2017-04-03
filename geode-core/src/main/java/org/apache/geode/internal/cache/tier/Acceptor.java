@@ -25,7 +25,7 @@ import org.apache.geode.internal.Version;
  *
  * @since GemFire 2.0.2
  */
-public abstract class Acceptor {
+public interface Acceptor {
 
   // The following are communications "mode" bytes sent as the first byte of a
   // client/server handshake. They must not be larger than 1 byte

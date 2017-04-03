@@ -2880,7 +2880,7 @@ public class DurableClientSimpleDUnitTest extends DurableClientTestCase {
         public void run2() throws CacheException {
           // Set the Test Hook!
           // This test hook will pause during the drain process
-          CacheClientProxy.testHook = new RejectClientReconnectTestHook();
+          CacheClientProxy.setTestHook(new RejectClientReconnectTestHook());
         }
       });
 
@@ -2909,8 +2909,8 @@ public class DurableClientSimpleDUnitTest extends DurableClientTestCase {
           WaitCriterion ev = new WaitCriterion() {
             @Override
             public boolean done() {
-              return CacheClientProxy.testHook != null
-                  && (((RejectClientReconnectTestHook) CacheClientProxy.testHook)
+              return CacheClientProxy.getTestHook() != null
+                  && (((RejectClientReconnectTestHook) CacheClientProxy.getTestHook())
                       .wasClientRejected());
             }
 
@@ -2921,7 +2921,7 @@ public class DurableClientSimpleDUnitTest extends DurableClientTestCase {
           };
           Wait.waitForCriterion(ev, 10 * 1000, 200, true);
           assertTrue(
-              ((RejectClientReconnectTestHook) CacheClientProxy.testHook).wasClientRejected());
+              ((RejectClientReconnectTestHook) CacheClientProxy.getTestHook()).wasClientRejected());
         }
       });
 
@@ -2958,7 +2958,7 @@ public class DurableClientSimpleDUnitTest extends DurableClientTestCase {
       this.server1VM.invoke(new CacheSerializableRunnable("unset test hook") {
         @Override
         public void run2() throws CacheException {
-          CacheClientProxy.testHook = null;
+          CacheClientProxy.unsetTestHook();
         }
       });
     }
@@ -3012,7 +3012,7 @@ public class DurableClientSimpleDUnitTest extends DurableClientTestCase {
 
               // Set the Test Hook!
               // This test hook will pause during the drain process
-              CacheClientProxy.testHook = new CqExceptionDueToActivatingClientTestHook();
+              CacheClientProxy.setTestHook(new CqExceptionDueToActivatingClientTestHook());
 
               final CacheClientNotifier ccnInstance = CacheClientNotifier.getInstance();
               final CacheClientProxy clientProxy = ccnInstance.getClientProxy(durableClientId);
@@ -3072,7 +3072,7 @@ public class DurableClientSimpleDUnitTest extends DurableClientTestCase {
       this.server1VM.invoke(new CacheSerializableRunnable("unset test hook") {
         @Override
         public void run2() throws CacheException {
-          CacheClientProxy.testHook = null;
+          CacheClientProxy.unsetTestHook();
         }
       });
     }

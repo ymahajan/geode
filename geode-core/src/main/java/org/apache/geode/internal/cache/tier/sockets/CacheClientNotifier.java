@@ -43,6 +43,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.geode.internal.security.SecurityService;
 import org.apache.logging.log4j.Logger;
 import org.apache.shiro.subject.Subject;
 
@@ -79,7 +80,6 @@ import org.apache.geode.distributed.internal.MessageWithReply;
 import org.apache.geode.distributed.internal.ReplyMessage;
 import org.apache.geode.distributed.internal.ReplyProcessor21;
 import org.apache.geode.internal.ClassLoadUtil;
-import org.apache.geode.internal.statistics.DummyStatisticsFactory;
 import org.apache.geode.internal.InternalDataSerializer;
 import org.apache.geode.internal.InternalInstantiator;
 import org.apache.geode.internal.net.SocketCloser;
@@ -113,10 +113,8 @@ import org.apache.geode.internal.cache.tier.Acceptor;
 import org.apache.geode.internal.cache.tier.MessageType;
 import org.apache.geode.internal.cache.versions.VersionTag;
 import org.apache.geode.internal.i18n.LocalizedStrings;
-import org.apache.geode.internal.logging.InternalLogWriter;
 import org.apache.geode.internal.logging.LogService;
 import org.apache.geode.internal.logging.log4j.LocalizedMessage;
-import org.apache.geode.internal.net.SocketCloser;
 import org.apache.geode.security.AccessControl;
 import org.apache.geode.security.AuthenticationFailedException;
 import org.apache.geode.security.AuthenticationRequiredException;
@@ -125,32 +123,25 @@ import org.apache.geode.security.AuthenticationRequiredException;
  * Class <code>CacheClientNotifier</code> works on the server and manages client socket connections
  * to clients requesting notification of updates and notifies them when updates occur.
  *
- *
  * @since GemFire 3.2
  */
 @SuppressWarnings({"synthetic-access", "deprecation"})
 public class CacheClientNotifier {
   private static final Logger logger = LogService.getLogger();
+  private static final Logger securityLogger = LogService.getSecurityLogger();
 
   private static volatile CacheClientNotifier ccnSingleton;
 
   /**
    * Factory method to construct a CacheClientNotifier <code>CacheClientNotifier</code> instance.
-   *
-   * @param cache The GemFire <code>Cache</code>
-   * @param acceptorStats
-   * @param maximumMessageCount
-   * @param messageTimeToLive
-   * @param listener
-   * @param overflowAttributesList
-   * @return A <code>CacheClientNotifier</code> instance
    */
-  public static synchronized CacheClientNotifier getInstance(Cache cache,
-      CacheServerStats acceptorStats, int maximumMessageCount, int messageTimeToLive,
-      ConnectionListener listener, List overflowAttributesList, boolean isGatewayReceiver) {
+  public static synchronized CacheClientNotifier getInstance(final Cache cache,
+      final CacheServerStats acceptorStats, final StatisticsFactory statsFactory,
+      final int maximumMessageCount, final int messageTimeToLive, final ConnectionListener listener,
+      final List overflowAttributesList, final boolean isGatewayReceiver) {
     if (ccnSingleton == null) {
-      ccnSingleton = new CacheClientNotifier(cache, acceptorStats, maximumMessageCount,
-          messageTimeToLive, listener, overflowAttributesList, isGatewayReceiver);
+      ccnSingleton = new CacheClientNotifier(cache, acceptorStats, statsFactory,
+          maximumMessageCount, messageTimeToLive, listener);
     }
 
     if (!isGatewayReceiver && ccnSingleton.getHaContainer() == null) {
@@ -158,18 +149,56 @@ public class CacheClientNotifier {
       // In this case, the HaContainer should be lazily created here
       ccnSingleton.initHaContainer(overflowAttributesList);
     }
-    // else {
-    // ccnSingleton.acceptorStats = acceptorStats;
-    // ccnSingleton.maximumMessageCount = maximumMessageCount;
-    // ccnSingleton.messageTimeToLive = messageTimeToLive;
-    // ccnSingleton._connectionListener = listener;
-    // ccnSingleton.setCache((GemFireCache)cache);
-    // }
     return ccnSingleton;
   }
 
   public static CacheClientNotifier getInstance() {
     return ccnSingleton;
+  }
+
+  /**
+   * Constructor.
+   * 
+   * @param cache The GemFire <code>Cache</code>
+   * @param acceptorStats
+   * @param statsFactory
+   * @param maximumMessageCount
+   * @param messageTimeToLive
+   * @param listener a listener which should receive notifications abouts queues being added or
+   *        removed.
+   */
+  private CacheClientNotifier(final Cache cache, final CacheServerStats acceptorStats,
+      final StatisticsFactory statsFactory, final int maximumMessageCount,
+      final int messageTimeToLive, final ConnectionListener listener) {
+    // Set the Cache
+    this.setCache((GemFireCacheImpl) cache);
+    this.acceptorStats = acceptorStats;
+    // we only need one thread per client and wait 50ms for close
+    this.socketCloser = new SocketCloser(1, 50);
+    this._connectionListener = listener;
+
+    this.maximumMessageCount = maximumMessageCount;
+    this.messageTimeToLive = messageTimeToLive;
+
+    this._statistics = new CacheClientNotifierStats(statsFactory);
+
+    try {
+      this.logFrequency = Long.valueOf(System.getProperty(MAX_QUEUE_LOG_FREQUENCY));
+      if (this.logFrequency <= 0) {
+        this.logFrequency = DEFAULT_LOG_FREQUENCY;
+      }
+    } catch (Exception e) {
+      this.logFrequency = DEFAULT_LOG_FREQUENCY;
+    }
+
+    eventEnqueueWaitTime =
+        Integer.getInteger(EVENT_ENQUEUE_WAIT_TIME_NAME, DEFAULT_EVENT_ENQUEUE_WAIT_TIME);
+    if (eventEnqueueWaitTime < 0) {
+      eventEnqueueWaitTime = DEFAULT_EVENT_ENQUEUE_WAIT_TIME;
+    }
+
+    // Schedule task to periodically ping clients.
+    scheduleClientPingTask();
   }
 
   /**
@@ -257,32 +286,12 @@ public class CacheClientNotifier {
     writeMessage(dos, type, ex.toString(), clientVersion);
   }
 
-  // /**
-  // * Factory method to return the singleton <code>CacheClientNotifier</code>
-  // * instance.
-  // * @return the singleton <code>CacheClientNotifier</code> instance
-  // */
-  // public static CacheClientNotifier getInstance()
-  // {
-  // return _instance;
-  // }
-
-  // /**
-  // * Shuts down the singleton <code>CacheClientNotifier</code> instance.
-  // */
-  // public static void shutdownInstance()
-  // {
-  // if (_instance == null) return;
-  // _instance.shutdown();
-  // _instance = null;
-  // }
-
   /**
    * Registers a new client updater that wants to receive updates with this server.
    *
    * @param socket The socket over which the server communicates with the client.
    */
-  public void registerClient(Socket socket, boolean isPrimary, long acceptorId,
+  void registerClient(Socket socket, boolean isPrimary, long acceptorId,
       boolean notifyBySubscription) throws IOException {
     // Since no remote ports were specified in the message, wait for them.
     long startTime = this._statistics.startTime();
@@ -329,7 +338,7 @@ public class CacheClientNotifier {
     }
   }
 
-  protected void registerGFEClient(DataInputStream dis, DataOutputStream dos, Socket socket,
+  private void registerGFEClient(DataInputStream dis, DataOutputStream dos, Socket socket,
       boolean isPrimary, long startTime, Version clientVersion, long acceptorId,
       boolean notifyBySubscription) throws IOException {
     // Read the ports and throw them away. We no longer need them
@@ -382,26 +391,27 @@ public class CacheClientNotifier {
       // TODO:hitesh
       Properties credentials = HandShake.readCredentials(dis, dos, system);
       if (credentials != null && proxy != null) {
-        if (securityLogWriter.fineEnabled()) {
-          securityLogWriter
-              .fine("CacheClientNotifier: verifying credentials for proxyID: " + proxyID);
+        if (securityLogger.isDebugEnabled()) {
+          securityLogger.debug("CacheClientNotifier: verifying credentials for proxyID: {}",
+              proxyID);
         }
-        Object subject = HandShake.verifyCredentials(authenticator, credentials,
-            system.getSecurityProperties(), this.logWriter, this.securityLogWriter, member);
+        Object subject =
+            HandShake.verifyCredentials(authenticator, credentials, system.getSecurityProperties(),
+                system.getLogWriter(), system.getSecurityLogWriter(), member);
         if (subject instanceof Principal) {
           Principal principal = (Principal) subject;
-          if (securityLogWriter.fineEnabled()) {
-            securityLogWriter
-                .fine("CacheClientNotifier: successfully verified credentials for proxyID: "
-                    + proxyID + " having principal: " + principal.getName());
+          if (securityLogger.isDebugEnabled()) {
+            securityLogger.debug(
+                "CacheClientNotifier: successfully verified credentials for proxyID: {} having principal: {}",
+                proxyID, principal.getName());
           }
 
           String postAuthzFactoryName = sysProps.getProperty(SECURITY_CLIENT_ACCESSOR_PP);
           if (postAuthzFactoryName != null && postAuthzFactoryName.length() > 0) {
             if (principal == null) {
-              securityLogWriter.warning(
+              securityLogger.warn(LocalizedMessage.create(
                   LocalizedStrings.CacheClientNotifier_CACHECLIENTNOTIFIER_POST_PROCESS_AUTHORIZATION_CALLBACK_ENABLED_BUT_AUTHENTICATION_CALLBACK_0_RETURNED_WITH_NULL_CREDENTIALS_FOR_PROXYID_1,
-                  new Object[] {SECURITY_CLIENT_AUTHENTICATOR, proxyID});
+                  new Object[] {SECURITY_CLIENT_AUTHENTICATOR, proxyID}));
             }
             Method authzMethod = ClassLoadUtil.methodFromName(postAuthzFactoryName);
             authzCallback = (AccessControl) authzMethod.invoke(null, (Object[]) null);
@@ -417,15 +427,15 @@ public class CacheClientNotifier {
           LocalizedStrings.CacheClientNotifier_CLIENTPROXYMEMBERSHIPID_OBJECT_COULD_NOT_BE_CREATED_EXCEPTION_OCCURRED_WAS_0
               .toLocalizedString(e));
     } catch (AuthenticationRequiredException ex) {
-      securityLogWriter.warning(
+      securityLogger.warn(LocalizedMessage.create(
           LocalizedStrings.CacheClientNotifier_AN_EXCEPTION_WAS_THROWN_FOR_CLIENT_0_1,
-          new Object[] {proxyID, ex});
+          new Object[] {proxyID, ex}));
       writeException(dos, HandShake.REPLY_EXCEPTION_AUTHENTICATION_REQUIRED, ex, clientVersion);
       return;
     } catch (AuthenticationFailedException ex) {
-      securityLogWriter.warning(
+      securityLogger.warn(LocalizedMessage.create(
           LocalizedStrings.CacheClientNotifier_AN_EXCEPTION_WAS_THROWN_FOR_CLIENT_0_1,
-          new Object[] {proxyID, ex});
+          new Object[] {proxyID, ex}));
       writeException(dos, HandShake.REPLY_EXCEPTION_AUTHENTICATION_FAILED, ex, clientVersion);
       return;
     } catch (CacheException e) {
@@ -445,10 +455,8 @@ public class CacheClientNotifier {
       return;
     }
 
-
     this._statistics.endClientRegistration(startTime);
   }
-
 
   /**
    * Registers a new client that wants to receive updates with this server.
@@ -504,8 +512,9 @@ public class CacheClientNotifier {
               "CacheClientNotifier: No proxy exists for durable client with id {}. It must be created.",
               proxyId.getDurableId());
         }
-        l_proxy = new CacheClientProxy(this, socket, proxyId, isPrimary, clientConflation,
-            clientVersion, acceptorId, notifyBySubscription);
+        l_proxy = CacheClientProxy.createCacheClientProxy(this, this._cache,
+            this._cache.getDistributedSystem(), SecurityService.getSecurityService(), socket,
+            proxyId, isPrimary, clientConflation, clientVersion, acceptorId, notifyBySubscription);
         successful = this.initializeProxy(l_proxy);
       } else {
         if (proxy.isPrimary()) {
@@ -516,8 +525,8 @@ public class CacheClientNotifier {
         qSize = proxy.getQueueSize();
         // A proxy exists for this durable client. It must be reinitialized.
         if (l_proxy.isPaused()) {
-          if (CacheClientProxy.testHook != null) {
-            CacheClientProxy.testHook.doTestHook("CLIENT_PRE_RECONNECT");
+          if (CacheClientProxy.getTestHook() != null) {
+            CacheClientProxy.getTestHook().doTestHook("CLIENT_PRE_RECONNECT");
           }
           if (l_proxy.lockDrain()) {
             try {
@@ -531,8 +540,8 @@ public class CacheClientNotifier {
               l_proxy.reinitialize(socket, proxyId, this.getCache(), isPrimary, clientConflation,
                   clientVersion);
               l_proxy.setMarkerEnqueued(true);
-              if (CacheClientProxy.testHook != null) {
-                CacheClientProxy.testHook.doTestHook("CLIENT_RECONNECTED");
+              if (CacheClientProxy.getTestHook() != null) {
+                CacheClientProxy.getTestHook().doTestHook("CLIENT_RECONNECTED");
               }
             } finally {
               l_proxy.unlockDrain();
@@ -543,8 +552,8 @@ public class CacheClientNotifier {
                     .toLocalizedString();
             logger.warn(unsuccessfulMsg);
             responseByte = HandShake.REPLY_REFUSED;
-            if (CacheClientProxy.testHook != null) {
-              CacheClientProxy.testHook.doTestHook("CLIENT_REJECTED_DUE_TO_CQ_BEING_DRAINED");
+            if (CacheClientProxy.getTestHook() != null) {
+              CacheClientProxy.getTestHook().doTestHook("CLIENT_REJECTED_DUE_TO_CQ_BEING_DRAINED");
             }
           }
         } else {
@@ -582,8 +591,9 @@ public class CacheClientNotifier {
 
       if (toCreateNewProxy) {
         // Create the new proxy for this non-durable client
-        l_proxy = new CacheClientProxy(this, socket, proxyId, isPrimary, clientConflation,
-            clientVersion, acceptorId, notifyBySubscription);
+        l_proxy = CacheClientProxy.createCacheClientProxy(this, this._cache,
+            this._cache.getDistributedSystem(), SecurityService.getSecurityService(), socket,
+            proxyId, isPrimary, clientConflation, clientVersion, acceptorId, notifyBySubscription);
         successful = this.initializeProxy(l_proxy);
       }
     }
@@ -754,10 +764,8 @@ public class CacheClientNotifier {
    * Unregisters an existing client from this server.
    *
    * @param memberId Uniquely identifies the client
-   *
-   *
    */
-  public void unregisterClient(ClientProxyMembershipID memberId, boolean normalShutdown) {
+  void unregisterClient(ClientProxyMembershipID memberId, boolean normalShutdown) {
     if (logger.isDebugEnabled()) {
       logger.debug("CacheClientNotifier: Unregistering all clients with member id: {}", memberId);
     }
@@ -781,8 +789,6 @@ public class CacheClientNotifier {
 
   /**
    * The client represented by the proxyId is ready to receive updates.
-   *
-   * @param proxyId
    */
   public void readyForEvents(ClientProxyMembershipID proxyId) {
     CacheClientProxy proxy = getClientProxy(proxyId);
@@ -817,7 +823,6 @@ public class CacheClientNotifier {
     CacheClientNotifier instance = ccnSingleton;
     if (instance != null) {
       instance.singletonNotifyClients(event, null);
-
     }
   }
 
@@ -829,7 +834,6 @@ public class CacheClientNotifier {
     CacheClientNotifier instance = ccnSingleton;
     if (instance != null) {
       instance.singletonNotifyClients(event, cmsg);
-
     }
   }
 
@@ -838,10 +842,6 @@ public class CacheClientNotifier {
     final boolean isTraceEnabled = logger.isTraceEnabled();
 
     FilterInfo filterInfo = event.getLocalFilterInfo();
-
-    // if (_logger.fineEnabled()) {
-    // _logger.fine("Client dispatcher processing event " + event);
-    // }
 
     FilterProfile regionProfile = ((LocalRegion) event.getRegion()).getFilterProfile();
     if (filterInfo != null) {
@@ -964,9 +964,7 @@ public class CacheClientNotifier {
     if (filterInfo.filterProcessedLocally) {
       removeDestroyTokensFromCqResultKeys(event, filterInfo);
     }
-
   }
-
 
   private void removeDestroyTokensFromCqResultKeys(InternalCacheEvent event,
       FilterInfo filterInfo) {
@@ -986,38 +984,22 @@ public class CacheClientNotifier {
     }
   }
 
-
   /**
    * delivers the given message to all proxies for routing. The message should already have client
    * interest established, or override the isClientInterested method to implement its own routing
-   * 
-   * @param clientMessage
    */
   public static void routeClientMessage(Conflatable clientMessage) {
     CacheClientNotifier instance = ccnSingleton;
     if (instance != null) {
-      instance.singletonRouteClientMessage(clientMessage, instance._clientProxies.keySet()); // ok
-                                                                                             // to
-                                                                                             // use
-                                                                                             // keySet
-                                                                                             // here
-                                                                                             // because
-                                                                                             // all
-                                                                                             // we
-                                                                                             // do
-                                                                                             // is
-                                                                                             // call
-                                                                                             // getClientProxy
-                                                                                             // with
-                                                                                             // these
-                                                                                             // keys
+      // ok to use keySet here because all we do is call getClientProxy with these keys
+      instance.singletonRouteClientMessage(clientMessage, instance._clientProxies.keySet());
     }
   }
 
   /*
    * this is for server side registration of client queue
    */
-  public static void routeSingleClientMessage(ClientUpdateMessage clientMessage,
+  static void routeSingleClientMessage(ClientUpdateMessage clientMessage,
       ClientProxyMembershipID clientProxyMembershipId) {
     CacheClientNotifier instance = ccnSingleton;
     if (instance != null) {
@@ -1029,8 +1011,8 @@ public class CacheClientNotifier {
   private void singletonRouteClientMessage(Conflatable conflatable,
       Collection<ClientProxyMembershipID> filterClients) {
 
-    this._cache.getCancelCriterion().checkCancelInProgress(null); // bug #43942 - client notified
-                                                                  // but no p2p distribution
+    // bug #43942 - client notified but no p2p distribution
+    this._cache.getCancelCriterion().checkCancelInProgress(null);
 
     List<CacheClientProxy> deadProxies = null;
     for (ClientProxyMembershipID clientId : filterClients) {
@@ -1061,7 +1043,8 @@ public class CacheClientNotifier {
    * processes the given collection of durable and non-durable client identifiers, returning a
    * collection of non-durable identifiers of clients connected to this VM
    */
-  public Set<ClientProxyMembershipID> getProxyIDs(Set mixedDurableAndNonDurableIDs) {
+  Set<ClientProxyMembershipID> getProxyIDs(Set mixedDurableAndNonDurableIDs) {
+    // TODO: false is ignored here because true is hardcoded in other method
     return getProxyIDs(mixedDurableAndNonDurableIDs, false);
   }
 
@@ -1070,7 +1053,7 @@ public class CacheClientNotifier {
    * collection of non-durable identifiers of clients connected to this VM. This version can check
    * for proxies in initialization as well as fully initialized proxies.
    */
-  public Set<ClientProxyMembershipID> getProxyIDs(Set mixedDurableAndNonDurableIDs,
+  Set<ClientProxyMembershipID> getProxyIDs(Set mixedDurableAndNonDurableIDs,
       boolean proxyInInitMode) {
     Set<ClientProxyMembershipID> result = new HashSet();
     for (Object id : mixedDurableAndNonDurableIDs) {
@@ -1209,7 +1192,7 @@ public class CacheClientNotifier {
    * @param operation The operation that occurred (e.g. AFTER_CREATE)
    * @return whether the <code>CacheClientNotifier</code> supports the input operation
    */
-  protected boolean supportsOperation(EnumListenerEvent operation) {
+  private boolean supportsOperation(EnumListenerEvent operation) {
     return operation == EnumListenerEvent.AFTER_CREATE
         || operation == EnumListenerEvent.AFTER_UPDATE
         || operation == EnumListenerEvent.AFTER_DESTROY
@@ -1218,87 +1201,6 @@ public class CacheClientNotifier {
         || operation == EnumListenerEvent.AFTER_REGION_CLEAR
         || operation == EnumListenerEvent.AFTER_REGION_INVALIDATE;
   }
-
-  // /**
-  // * Queues the <code>ClientUpdateMessage</code> to be distributed
-  // * to interested clients. This method is not being used currently.
-  // * @param clientMessage The <code>ClientUpdateMessage</code> to be queued
-  // */
-  // protected void notifyClients(final ClientUpdateMessage clientMessage)
-  // {
-  // if (USE_SYNCHRONOUS_NOTIFICATION)
-  // {
-  // // Execute the method in the same thread as the caller
-  // deliver(clientMessage);
-  // }
-  // else {
-  // // Obtain an Executor and use it to execute the method in its own thread
-  // try
-  // {
-  // getExecutor().execute(new Runnable()
-  // {
-  // public void run()
-  // {
-  // deliver(clientMessage);
-  // }
-  // }
-  // );
-  // } catch (InterruptedException e)
-  // {
-  // _logger.warning("CacheClientNotifier: notifyClients interrupted", e);
-  // Thread.currentThread().interrupt();
-  // }
-  // }
-  // }
-
-  // /**
-  // * Updates the information this <code>CacheClientNotifier</code> maintains
-  // * for a given edge client. It is invoked when a edge client re-connects to
-  // * the server.
-  // *
-  // * @param clientHost
-  // * The host on which the client runs (i.e. the host the
-  // * CacheClientNotifier uses to communicate with the
-  // * CacheClientUpdater) This is used with the clientPort to uniquely
-  // * identify the client
-  // * @param clientPort
-  // * The port through which the server communicates with the client
-  // * (i.e. the port the CacheClientNotifier uses to communicate with
-  // * the CacheClientUpdater) This is used with the clientHost to
-  // * uniquely identify the client
-  // * @param remotePort
-  // * The port through which the client communicates with the server
-  // * (i.e. the new port the ConnectionImpl uses to communicate with the
-  // * ServerConnection)
-  // * @param membershipID
-  // * Uniquely idenifies the client
-  // */
-  // public void registerClientPort(String clientHost, int clientPort,
-  // int remotePort, ClientProxyMembershipID membershipID)
-  // {
-  // if (_logger.fineEnabled())
-  // _logger.fine("CacheClientNotifier: Registering client port: "
-  // + clientHost + ":" + clientPort + " with remote port " + remotePort
-  // + " and ID " + membershipID);
-  // for (Iterator i = getClientProxies().iterator(); i.hasNext();) {
-  // CacheClientProxy proxy = (CacheClientProxy)i.next();
-  // if (_logger.finerEnabled())
-  // _logger.finer("CacheClientNotifier: Potential client: " + proxy);
-  // //if (proxy.representsCacheClientUpdater(clientHost, clientPort))
-  // if (proxy.isMember(membershipID)) {
-  // if (_logger.finerEnabled())
-  // _logger
-  // .finer("CacheClientNotifier: Updating remotePorts since host and port are a match");
-  // proxy.addPort(remotePort);
-  // }
-  // else {
-  // if (_logger.finerEnabled())
-  // _logger.finer("CacheClientNotifier: Host and port "
-  // + proxy.getRemoteHostAddress() + ":" + proxy.getRemotePort()
-  // + " do not match " + clientHost + ":" + clientPort);
-  // }
-  // }
-  // }
 
   /**
    * Registers client interest in the input region and key.
@@ -1349,18 +1251,6 @@ public class CacheClientNotifier {
       }
     }
   }
-
-  /*
-   * protected void addFilterRegisteredClients(String regionName, ClientProxyMembershipID
-   * membershipID) throws RegionNotFoundException { // Update Regions book keeping. LocalRegion
-   * region = (LocalRegion)this._cache.getRegion(regionName); if (region == null) { //throw new
-   * AssertionError("Could not find region named '" + regionName + "'"); // @todo: see bug 36805 //
-   * fix for bug 37979 if (_logger.fineEnabled()) { _logger .fine("CacheClientNotifier: Client " +
-   * membershipID + " :Throwing RegionDestroyedException as region: " + regionName +
-   * " is not present."); } throw new RegionDestroyedException("registerInterest failed",
-   * regionName); } else { region.getFilterProfile().addFilterRegisteredClients(this, membershipID);
-   * } }
-   */
 
   /**
    * Store region and delta relation
@@ -1457,7 +1347,6 @@ public class CacheClientNotifier {
     }
   }
 
-
   /**
    * If the conflatable is an instance of HAEventWrapper, and if the corresponding entry is present
    * in the haContainer, set the reference to the clientUpdateMessage to null and putInProgress flag
@@ -1484,9 +1373,6 @@ public class CacheClientNotifier {
             }
           }
         }
-        // else {
-        // This is a replay-of-event case.
-        // }
       } else {
         // This wrapper resides in haContainer.
         wrapper.setClientUpdateMessage(null);
@@ -1541,7 +1427,7 @@ public class CacheClientNotifier {
    * 
    * @return the <code>CacheClientProxy</code> associated to the durableClientId
    */
-  public CacheClientProxy getClientProxy(String durableClientId, boolean proxyInInitMode) {
+  private CacheClientProxy getClientProxy(String durableClientId, boolean proxyInInitMode) {
     final boolean isDebugEnabled = logger.isDebugEnabled();
     final boolean isTraceEnabled = logger.isTraceEnabled();
 
@@ -1584,46 +1470,10 @@ public class CacheClientNotifier {
   }
 
   /**
-   * Returns the <code>CacheClientProxySameDS</code> associated to the membershipID *
-   * 
-   * @return the <code>CacheClientProxy</code> associated to the same distributed system
-   */
-  public CacheClientProxy getClientProxySameDS(ClientProxyMembershipID membershipID) {
-    final boolean isDebugEnabled = logger.isDebugEnabled();
-    if (isDebugEnabled) {
-      logger.debug("{}::getClientProxySameDS(), Determining client for host {}", this,
-          membershipID);
-      logger.debug("{}::getClientProxySameDS(), Number of proxies in the Cache Clinet Notifier: {}",
-          this, getClientProxies().size());
-      /*
-       * _logger.fine(this + "::getClientProxySameDS(), Proxies in the Cache Clinet Notifier: " +
-       * getClientProxies());
-       */
-    }
-    CacheClientProxy proxy = null;
-    for (Iterator i = getClientProxies().iterator(); i.hasNext();) {
-      CacheClientProxy clientProxy = (CacheClientProxy) i.next();
-      if (isDebugEnabled) {
-        logger.debug("CacheClientNotifier: Checking client {}", clientProxy);
-      }
-      if (clientProxy.isSameDSMember(membershipID)) {
-        proxy = clientProxy;
-        if (isDebugEnabled) {
-          logger.debug("CacheClientNotifier: {} represents the client running on host {}", proxy,
-              membershipID);
-        }
-        break;
-      }
-    }
-    return proxy;
-  }
-
-
-  /**
    * It will remove the clients connected to the passed acceptorId. If its the only server, shuts
    * down this instance.
    */
-  protected synchronized void shutdown(long acceptorId) {
+  synchronized void shutdown(long acceptorId) {
     final boolean isDebugEnabled = logger.isDebugEnabled();
     if (isDebugEnabled) {
       logger.debug("At cache server shutdown time, the number of cache servers in the cache is {}",
@@ -1685,14 +1535,14 @@ public class CacheClientNotifier {
    *
    * @param proxy The <code>CacheClientProxy</code> to add
    */
-  protected void addClientProxy(CacheClientProxy proxy) throws IOException {
+  private void addClientProxy(CacheClientProxy proxy) throws IOException {
     // this._logger.info(LocalizedStrings.DEBUG, "adding client proxy " + proxy);
     getCache(); // ensure cache reference is up to date so firstclient state is correct
     this._clientProxies.put(proxy.getProxyID(), proxy);
     // Remove this proxy from the init proxy list.
     removeClientInitProxy(proxy);
     this._connectionListener.queueAdded(proxy.getProxyID());
-    if (!(proxy.clientConflation == HandShake.CONFLATION_ON)) {
+    if (!(proxy.isClientConflationOn())) {
       // Delta not supported with conflation ON
       ClientHealthMonitor chm = ClientHealthMonitor.getInstance();
       /*
@@ -1704,21 +1554,19 @@ public class CacheClientNotifier {
       }
     }
     this.timedOutDurableClientProxies.remove(proxy.getProxyID());
-
   }
 
-  protected void addClientInitProxy(CacheClientProxy proxy) throws IOException {
+  private void addClientInitProxy(CacheClientProxy proxy) throws IOException {
     this._initClientProxies.put(proxy.getProxyID(), proxy);
   }
 
-  protected void removeClientInitProxy(CacheClientProxy proxy) throws IOException {
+  private void removeClientInitProxy(CacheClientProxy proxy) throws IOException {
     this._initClientProxies.remove(proxy.getProxyID());
   }
 
-  protected boolean isProxyInInitializationMode(CacheClientProxy proxy) throws IOException {
+  private boolean isProxyInInitializationMode(CacheClientProxy proxy) throws IOException {
     return this._initClientProxies.containsKey(proxy.getProxyID());
   }
-
 
   /**
    * Returns (possibly stale) set of memberIds for all clients being actively notified by this
@@ -1781,7 +1629,6 @@ public class CacheClientNotifier {
    * @since GemFire 5.6
    */
   public boolean hasPrimaryForDurableClient(String durableId) {
-
     for (Iterator iter = this._clientProxies.values().iterator(); iter.hasNext();) {
       CacheClientProxy proxy = (CacheClientProxy) iter.next();
       ClientProxyMembershipID proxyID = proxy.getProxyID();
@@ -1818,7 +1665,9 @@ public class CacheClientNotifier {
     return ccp.getQueueSizeStat();
   }
 
-  // closes the cq and drains the queue
+  /**
+   * closes the cq and drains the queue
+   */
   public boolean closeClientCq(String durableClientId, String clientCQName) throws CqException {
     CacheClientProxy proxy = getClientProxy(durableClientId);
     // close and drain
@@ -1828,33 +1677,29 @@ public class CacheClientNotifier {
     return false;
   }
 
-
   /**
    * Removes an existing <code>CacheClientProxy</code> from the list of known client proxies
    *
    * @param proxy The <code>CacheClientProxy</code> to remove
    */
-  protected void removeClientProxy(CacheClientProxy proxy) {
-    // this._logger.info(LocalizedStrings.DEBUG, "removing client proxy " + proxy, new
-    // Exception("stack trace"));
+  void removeClientProxy(CacheClientProxy proxy) {
     ClientProxyMembershipID client = proxy.getProxyID();
     this._clientProxies.remove(client);
     this._connectionListener.queueRemoved();
     ((GemFireCacheImpl) this.getCache()).cleanupForClient(this, client);
-    if (!(proxy.clientConflation == HandShake.CONFLATION_ON)) {
+    if (!(proxy.isClientConflationOn())) {
       ClientHealthMonitor chm = ClientHealthMonitor.getInstance();
       if (chm != null) {
         chm.numOfClientsPerVersion.decrementAndGet(proxy.getVersion().ordinal());
       }
     }
-
   }
 
   void durableClientTimedOut(ClientProxyMembershipID client) {
     this.timedOutDurableClientProxies.add(client);
   }
 
-  public boolean isTimedOut(ClientProxyMembershipID client) {
+  private boolean isTimedOut(ClientProxyMembershipID client) {
     return this.timedOutDurableClientProxies.contains(client);
   }
 
@@ -1867,17 +1712,6 @@ public class CacheClientNotifier {
   public Collection<CacheClientProxy> getClientProxies() {
     return Collections.unmodifiableCollection(this._clientProxies.values());
   }
-
-  // /**
-  // * Returns the <code>Executor</code> that delivers messages to the
-  // * <code>CacheClientProxy</code> instances.
-  // * @return the <code>Executor</code> that delivers messages to the
-  // * <code>CacheClientProxy</code> instances
-  // */
-  // protected Executor getExecutor()
-  // {
-  // return _executor;
-  // }
 
   private void closeAllClientCqs(CacheClientProxy proxy) {
     CqService cqService = proxy.getCache().getCqService();
@@ -1901,7 +1735,6 @@ public class CacheClientNotifier {
 
   /**
    * Shuts down durable client proxy
-   *
    */
   public boolean closeDurableClientProxy(String durableClientId) throws CacheException {
     CacheClientProxy ccp = getClientProxy(durableClientId);
@@ -1930,8 +1763,9 @@ public class CacheClientNotifier {
     final boolean isDebugEnabled = logger.isDebugEnabled();
     for (Iterator i = deadProxies.iterator(); i.hasNext();) {
       CacheClientProxy proxy = (CacheClientProxy) i.next();
-      if (isDebugEnabled)
+      if (isDebugEnabled) {
         logger.debug("CacheClientNotifier: Closing dead client: {}", proxy);
+      }
 
       // Close the proxy
       boolean keepProxy = false;
@@ -1939,7 +1773,7 @@ public class CacheClientNotifier {
         keepProxy = proxy.close(false, stoppedNormally);
       } catch (CancelException e) {
         throw e;
-      } catch (Exception e) {
+      } catch (Exception e) { // TODO: at least log at debug level
       }
 
       // Remove the proxy if necessary. It might not be necessary to remove the
@@ -1959,7 +1793,6 @@ public class CacheClientNotifier {
       proxy.notifyRemoval();
     } // for
   }
-
 
   /**
    * Registers a new <code>InterestRegistrationListener</code> with the set of
@@ -1999,18 +1832,16 @@ public class CacheClientNotifier {
   }
 
   /**
-   * 
    * @since GemFire 5.8Beta
    */
-  protected boolean containsInterestRegistrationListeners() {
+  boolean containsInterestRegistrationListeners() {
     return !this.writableInterestRegistrationListeners.isEmpty();
   }
 
   /**
-   * 
    * @since GemFire 5.8Beta
    */
-  protected void notifyInterestRegistrationListeners(InterestRegistrationEvent event) {
+  void notifyInterestRegistrationListeners(InterestRegistrationEvent event) {
     for (Iterator i = this.writableInterestRegistrationListeners.iterator(); i.hasNext();) {
       InterestRegistrationListener listener = (InterestRegistrationListener) i.next();
       if (event.isRegister()) {
@@ -2040,8 +1871,6 @@ public class CacheClientNotifier {
       GemFireCacheImpl cache = GemFireCacheImpl.getInstance();
       if (cache != null) {
         this._cache = cache;
-        this.logWriter = cache.getInternalLogWriter();
-        this.securityLogWriter = cache.getSecurityInternalLogWriter();
       }
     }
     return this._cache;
@@ -2069,68 +1898,6 @@ public class CacheClientNotifier {
     LocalRegion region = (LocalRegion) event.getRegion();
     region.handleInterestEvent(event);
 
-  }
-
-  /**
-   * Constructor.
-   *
-   * @param cache The GemFire <code>Cache</code>
-   * @param acceptorStats
-   * @param maximumMessageCount
-   * @param messageTimeToLive
-   * @param listener a listener which should receive notifications abouts queues being added or
-   *        removed.
-   * @param overflowAttributesList
-   */
-  private CacheClientNotifier(Cache cache, CacheServerStats acceptorStats, int maximumMessageCount,
-      int messageTimeToLive, ConnectionListener listener, List overflowAttributesList,
-      boolean isGatewayReceiver) {
-    // Set the Cache
-    this.setCache((GemFireCacheImpl) cache);
-    this.acceptorStats = acceptorStats;
-    this.socketCloser = new SocketCloser(1, 50); // we only need one thread per client and wait 50ms
-                                                 // for close
-
-    // Set the LogWriter
-    this.logWriter = (InternalLogWriter) cache.getLogger();
-
-    this._connectionListener = listener;
-
-    // Set the security LogWriter
-    this.securityLogWriter = (InternalLogWriter) cache.getSecurityLogger();
-
-    this.maximumMessageCount = maximumMessageCount;
-    this.messageTimeToLive = messageTimeToLive;
-
-    // Initialize the statistics
-    StatisticsFactory factory;
-    if (isGatewayReceiver) {
-      factory = new DummyStatisticsFactory();
-    } else {
-      factory = this.getCache().getDistributedSystem();
-    }
-    this._statistics = new CacheClientNotifierStats(factory);
-
-    // Initialize the executors
-    // initializeExecutors(this._logger);
-
-    try {
-      this.logFrequency = Long.valueOf(System.getProperty(MAX_QUEUE_LOG_FREQUENCY));
-      if (this.logFrequency <= 0) {
-        this.logFrequency = DEFAULT_LOG_FREQUENCY;
-      }
-    } catch (Exception e) {
-      this.logFrequency = DEFAULT_LOG_FREQUENCY;
-    }
-
-    eventEnqueueWaitTime =
-        Integer.getInteger(EVENT_ENQUEUE_WAIT_TIME_NAME, DEFAULT_EVENT_ENQUEUE_WAIT_TIME);
-    if (eventEnqueueWaitTime < 0) {
-      eventEnqueueWaitTime = DEFAULT_EVENT_ENQUEUE_WAIT_TIME;
-    }
-
-    // Schedule task to periodically ping clients.
-    scheduleClientPingTask();
   }
 
   /**
@@ -2227,104 +1994,6 @@ public class CacheClientNotifier {
     }
 
   }
-
-
-  // * Initializes the <code>QueuedExecutor</code> and
-  // <code>PooledExecutor</code>
-  // * used to deliver messages to <code>CacheClientProxy</code> instances.
-  // * @param logger The GemFire <code>LogWriterI18n</code>
-  // */
-  // private void initializeExecutors(LogWriterI18n logger)
-  // {
-  // // Create the thread groups
-  // final ThreadGroup loggerGroup = LoggingThreadGroup.createThreadGroup("Cache
-  // Client Notifier Logger Group", logger);
-  // final ThreadGroup notifierGroup =
-  // new ThreadGroup("Cache Client Notifier Group")
-  // {
-  // public void uncaughtException(Thread t, Throwable e)
-  // {
-  // Thread.dumpStack();
-  // loggerGroup.uncaughtException(t, e);
-  // //CacheClientNotifier.exceptionInThreads = true;
-  // }
-  // };
-  //
-  // // Originally set ThreadGroup to be a daemon, but it was causing the
-  // following
-  // // exception after five minutes of non-activity (the keep alive time of the
-  // // threads in the PooledExecutor.
-  //
-  // // java.lang.IllegalThreadStateException
-  // // at java.lang.ThreadGroup.add(Unknown Source)
-  // // at java.lang.Thread.init(Unknown Source)
-  // // at java.lang.Thread.<init>(Unknown Source)
-  // // at
-  // org.apache.geode.internal.cache.tier.sockets.CacheClientNotifier$4.newThread(CacheClientNotifier.java:321)
-  // // at
-  // org.apache.edu.oswego.cs.dl.util.concurrent.PooledExecutor.addThread(PooledExecutor.java:512)
-  // // at
-  // org.apache.edu.oswego.cs.dl.util.concurrent.PooledExecutor.execute(PooledExecutor.java:888)
-  // // at
-  // org.apache.geode.internal.cache.tier.sockets.CacheClientNotifier.notifyClients(CacheClientNotifier.java:95)
-  // // at
-  // org.apache.geode.internal.cache.tier.sockets.ServerConnection.run(ServerConnection.java:271)
-  //
-  // //notifierGroup.setDaemon(true);
-  //
-  // if (USE_QUEUED_EXECUTOR)
-  // createQueuedExecutor(notifierGroup);
-  // else
-  // createPooledExecutor(notifierGroup);
-  // }
-
-  // /**
-  // * Creates the <code>QueuedExecutor</code> used to deliver messages
-  // * to <code>CacheClientProxy</code> instances
-  // * @param notifierGroup The <code>ThreadGroup</code> to which the
-  // * <code>QueuedExecutor</code>'s <code>Threads</code> belong
-  // */
-  // protected void createQueuedExecutor(final ThreadGroup notifierGroup)
-  // {
-  // QueuedExecutor queuedExecutor = new QueuedExecutor(new LinkedQueue());
-  // queuedExecutor.setThreadFactory(new ThreadFactory()
-  // {
-  // public Thread newThread(Runnable command)
-  // {
-  // Thread thread = new Thread(notifierGroup, command, "Queued Cache Client
-  // Notifier");
-  // thread.setDaemon(true);
-  // return thread;
-  // }
-  // });
-  // _executor = queuedExecutor;
-  // }
-
-  // /**
-  // * Creates the <code>PooledExecutor</code> used to deliver messages
-  // * to <code>CacheClientProxy</code> instances
-  // * @param notifierGroup The <code>ThreadGroup</code> to which the
-  // * <code>PooledExecutor</code>'s <code>Threads</code> belong
-  // */
-  // protected void createPooledExecutor(final ThreadGroup notifierGroup)
-  // {
-  // PooledExecutor pooledExecutor = new PooledExecutor(new
-  // BoundedLinkedQueue(4096), 50);
-  // pooledExecutor.setMinimumPoolSize(10);
-  // pooledExecutor.setKeepAliveTime(1000 * 60 * 5);
-  // pooledExecutor.setThreadFactory(new ThreadFactory()
-  // {
-  // public Thread newThread(Runnable command)
-  // {
-  // Thread thread = new Thread(notifierGroup, command, "Pooled Cache Client
-  // Notifier");
-  // thread.setDaemon(true);
-  // return thread;
-  // }
-  // });
-  // pooledExecutor.createThreads(5);
-  // _executor = pooledExecutor;
-  // }
 
   protected void deliverInterestChange(ClientProxyMembershipID proxyID,
       ClientInterestMessageImpl message) {
@@ -2471,23 +2140,6 @@ public class CacheClientNotifier {
    */
   protected static final int ALL_PORTS = -1;
 
-  // /**
-  // * Whether to synchonously deliver messages to proxies.
-  // * This is currently hard-coded to true to ensure ordering.
-  // */
-  // protected static final boolean USE_SYNCHRONOUS_NOTIFICATION =
-  // true;
-  // Boolean.getBoolean("CacheClientNotifier.USE_SYNCHRONOUS_NOTIFICATION");
-
-  // /**
-  // * Whether to use the <code>QueuedExecutor</code> (or the
-  // * <code>PooledExecutor</code>) to deliver messages to proxies.
-  // * Currently, delivery is synchronous. No <code>Executor</code> is
-  // * used.
-  // */
-  // protected static final boolean USE_QUEUED_EXECUTOR =
-  // Boolean.getBoolean("CacheClientNotifier.USE_QUEUED_EXECUTOR");
-
   /**
    * The map of known <code>CacheClientProxy</code> instances. Maps ClientProxyMembershipID to
    * CacheClientProxy. Note that the keys in this map are not updated when a durable client
@@ -2512,14 +2164,7 @@ public class CacheClientNotifier {
    * direct reference to _cache in CacheClientNotifier code. Instead, you should always use
    * <code>getCache()</code>
    */
-  private GemFireCacheImpl _cache;
-
-  private InternalLogWriter logWriter;
-
-  /**
-   * The GemFire security <code>LogWriter</code>
-   */
-  private InternalLogWriter securityLogWriter;
+  private GemFireCacheImpl _cache; // TODO: not thread-safe
 
   /** the maximum number of messages that can be enqueued in a client-queue. */
   private int maximumMessageCount;
@@ -2543,10 +2188,6 @@ public class CacheClientNotifier {
    */
   private volatile HAContainerWrapper haContainer;
 
-  // /**
-  // * The singleton <code>CacheClientNotifier</code> instance
-  // */
-  // protected static CacheClientNotifier _instance;
   /**
    * The size of the server-to-client communication socket buffers. This can be modified using the
    * BridgeServer.SOCKET_BUFFER_SIZE system property.

@@ -43,7 +43,6 @@ import org.apache.geode.CancelException;
 import org.apache.geode.DataSerializer;
 import org.apache.geode.StatisticsFactory;
 import org.apache.geode.cache.Cache;
-import org.apache.geode.cache.CacheClosedException;
 import org.apache.geode.cache.CacheException;
 import org.apache.geode.cache.ClientSession;
 import org.apache.geode.cache.DynamicRegionFactory;
@@ -111,7 +110,6 @@ import org.apache.shiro.util.ThreadState;
  * It queues messages to be sent from the server to the client. It then reads those messages from
  * the queue and sends them to the client.
  *
- *
  * @since GemFire 4.2
  */
 @SuppressWarnings("synthetic-access")
@@ -119,120 +117,18 @@ public class CacheClientProxy implements ClientSession {
   private static final Logger logger = LogService.getLogger();
 
   /**
-   * The socket between the server and the client
+   * Notify the region when a client interest registration occurs. This tells the region to update
+   * access time when an update is to be pushed to a client. It is enabled only for
+   * <code>PartitionedRegion</code>s currently.
    */
-  protected Socket _socket;
-
-  private final AtomicBoolean _socketClosed = new AtomicBoolean();
-
-  /**
-   * A communication buffer used by each message we send to the client
-   */
-  protected ByteBuffer _commBuffer;
-
-  /**
-   * The remote host's IP address string (cached for convenience)
-   */
-  protected String _remoteHostAddress;
-
-  /**
-   * Concurrency: protected by synchronization of {@link #isMarkedForRemovalLock}
-   */
-  protected volatile boolean isMarkedForRemoval = false;
-
-  /**
-   * @see #isMarkedForRemoval
-   */
-  protected final Object isMarkedForRemovalLock = new Object();
-
-  /**
-   * The proxy id of the client represented by this proxy
-   */
-  protected ClientProxyMembershipID proxyID;
-
-  /**
-   * The GemFire cache
-   */
-  protected final GemFireCacheImpl _cache;
-
-  /**
-   * The list of keys that the client represented by this proxy is interested in (stored by region)
-   */
-  protected final ClientInterestList[] cils = new ClientInterestList[2];
-
-  /**
-   * A thread that dispatches messages to the client
-   */
-  protected volatile MessageDispatcher _messageDispatcher;
-
-  /**
-   * The statistics for this proxy
-   */
-  protected final CacheClientProxyStats _statistics;
-
-  protected final AtomicReference _durableExpirationTask = new AtomicReference();
-
-  protected SystemTimer durableTimer;
-
-  /**
-   * Whether this dispatcher is paused
-   */
-  protected volatile boolean _isPaused = true;
-
-  /**
-   * True if we are connected to a client.
-   */
-  private volatile boolean connected = false;
-  // /**
-  // * A string representing interest in all keys
-  // */
-  // protected static final String ALL_KEYS = "ALL_KEYS";
-  //
-  /**
-   * True if a marker message is still in the ha queue.
-   */
-  private boolean markerEnqueued = false;
+  private static final boolean NOTIFY_REGION_ON_INTEREST =
+      Boolean.getBoolean(DistributionConfig.GEMFIRE_PREFIX + "updateAccessTimeOnClientInterest");
 
   /**
    * The number of times to peek on shutdown before giving up and shutting down
    */
-  protected static final int MAXIMUM_SHUTDOWN_PEEKS = Integer
-      .getInteger(DistributionConfig.GEMFIRE_PREFIX + "MAXIMUM_SHUTDOWN_PEEKS", 50).intValue();
-
-  /**
-   * The number of milliseconds to wait for an offering to the message queue
-   */
-  protected static final int MESSAGE_OFFER_TIME = 0;
-
-  /**
-   * The default maximum message queue size
-   */
-  // protected static final int MESSAGE_QUEUE_SIZE_DEFAULT = 230000;
-
-  /** The message queue size */
-  protected final int _maximumMessageCount;
-
-  /**
-   * The time (in seconds ) after which a message in the client queue will expire.
-   */
-  protected final int _messageTimeToLive;
-
-  /**
-   * The <code>CacheClientNotifier</code> registering this proxy.
-   */
-  protected final CacheClientNotifier _cacheClientNotifier;
-
-  /**
-   * Defaults to true; meaning do some logging of dropped client notification messages. Set the
-   * system property to true to cause dropped messages to NOT be logged.
-   */
-  protected static final boolean LOG_DROPPED_MSGS =
-      !Boolean.getBoolean(DistributionConfig.GEMFIRE_PREFIX + "disableNotificationWarnings");
-
-  /**
-   * for testing purposes, delays the start of the dispatcher thread
-   */
-  public static boolean isSlowStartForTesting = false;
+  private static final int MAXIMUM_SHUTDOWN_PEEKS =
+      Integer.getInteger(DistributionConfig.GEMFIRE_PREFIX + "MAXIMUM_SHUTDOWN_PEEKS", 50);
 
   /**
    * Default value for slow starting time of dispatcher
@@ -244,30 +140,104 @@ public class CacheClientProxy implements ClientSession {
    */
   private static final String KEY_SLOW_START_TIME_FOR_TESTING = "slowStartTimeForTesting";
 
-  private boolean isPrimary;
-
-  /** @since GemFire 5.7 */
-  protected byte clientConflation = HandShake.CONFLATION_DEFAULT;
+  /**
+   * TODO: delete this and rewrite the tests that use this NOTE: this is NOT thread safe
+   */
+  private static TestHook testHook;
 
   /**
-   * Flag to indicate whether to keep a durable client's queue alive
+   * TODO: delete this and rewrite the test that uses this A debug flag used for testing Backward
+   * compatibility
    */
-  boolean keepalive = false;
-
-  private AccessControl postAuthzCallback;
-  private Subject subject;
+  private static boolean afterMessageCreationForTesting = false;
 
   /**
-   * For multiuser environment..
+   * TODO: delete this and rewrite the test that uses this for testing purposes, delays the start of
+   * the dispatcher thread
    */
-  private ClientUserAuths clientUserAuths;
+  private static boolean isSlowStartForTesting = false;
+
+  private final AtomicBoolean socketClosed = new AtomicBoolean();
+
+  /**
+   * @see #isMarkedForRemoval
+   */
+  private final Object isMarkedForRemovalLock = new Object();
+
+  /**
+   * The GemFire cache
+   */
+  private final GemFireCacheImpl cache;
+
+  /**
+   * The list of keys that the client represented by this proxy is interested in (stored by region)
+   */
+  private final ClientInterestList[] cils = new ClientInterestList[2];
+
+  /**
+   * The statistics for this proxy
+   */
+  private final CacheClientProxyStats _statistics;
+
+  private final AtomicReference _durableExpirationTask = new AtomicReference();
+
+  /** The message queue size */
+  private final int _maximumMessageCount;
+
+  /**
+   * The time (in seconds ) after which a message in the client queue will expire.
+   */
+  private final int _messageTimeToLive;
+
+  /**
+   * The <code>CacheClientNotifier</code> registering this proxy.
+   */
+  private final CacheClientNotifier cacheClientNotifier;
 
   private final Object clientUserAuthsLock = new Object();
 
   /**
-   * The version of the client
+   * The AcceptorImpl identifier to which the proxy is connected.
    */
-  private Version clientVersion;
+  private final long _acceptorId;
+
+  /** acceptor's setting for notifyBySubscription */
+  private final boolean notifyBySubscription;
+
+  private final Object queuedEventsSync = new Object();
+
+  /**
+   * A counter that keeps track of how many task iterations that have occurred since the last ping
+   * or message. The {@linkplain CacheClientNotifier#scheduleClientPingTask ping task} increments
+   * it. Normal messages sent to the client reset it. If the counter reaches 3, a ping is sent.
+   */
+  private final AtomicInteger pingCounter = new AtomicInteger();
+
+  private final Object drainLock = new Object();
+
+  private final Object drainsInProgressLock = new Object();
+
+  private final SecurityService securityService;
+
+  /**
+   * Concurrency: protected by synchronization of {@link #isMarkedForRemovalLock}
+   */
+  private volatile boolean isMarkedForRemoval = false;
+
+  /**
+   * A thread that dispatches messages to the client
+   */
+  private volatile MessageDispatcher _messageDispatcher;
+
+  /**
+   * Whether this dispatcher is paused
+   */
+  private volatile boolean _isPaused = true;
+
+  /**
+   * True if we are connected to a client.
+   */
+  private volatile boolean connected = false;
 
   /**
    * A map of region name as key and integer as its value. Basically, it stores the names of the
@@ -278,42 +248,60 @@ public class CacheClientProxy implements ClientSession {
    */
   private volatile Map regionsWithEmptyDataPolicy = new HashMap();
 
-  /**
-   * A debug flag used for testing Backward compatibility
-   */
-  public static boolean AFTER_MESSAGE_CREATION_FLAG = false;
-
-  /**
-   * Notify the region when a client interest registration occurs. This tells the region to update
-   * access time when an update is to be pushed to a client. It is enabled only for
-   * <code>PartitionedRegion</code>s currently.
-   */
-  protected static final boolean NOTIFY_REGION_ON_INTEREST =
-      Boolean.getBoolean(DistributionConfig.GEMFIRE_PREFIX + "updateAccessTimeOnClientInterest");
-
-  /**
-   * The AcceptorImpl identifier to which the proxy is connected.
-   */
-  private final long _acceptorId;
-
-  /** acceptor's setting for notifyBySubscription */
-  private final boolean notifyBySubscription;
-
   /** To queue the events arriving during message dispatcher initialization */
   private volatile ConcurrentLinkedQueue<Conflatable> queuedEvents =
       new ConcurrentLinkedQueue<Conflatable>();
 
-  private final Object queuedEventsSync = new Object();
-
   private volatile boolean messageDispatcherInit = false;
 
   /**
-   * A counter that keeps track of how many task iterations that have occurred since the last ping
-   * or message. The {@linkplain CacheClientNotifier#scheduleClientPingTask ping task} increments
-   * it. Normal messages sent to the client reset it. If the counter reaches 3, a ping is sent.
+   * The socket between the server and the client
    */
-  private final AtomicInteger pingCounter = new AtomicInteger();
+  private Socket socket;
 
+  /**
+   * A communication buffer used by each message we send to the client
+   */
+  private ByteBuffer _commBuffer;
+
+  /**
+   * The remote host's IP address string (cached for convenience)
+   */
+  private String _remoteHostAddress;
+
+  /**
+   * The proxy id of the client represented by this proxy
+   */
+  private ClientProxyMembershipID proxyID;
+
+  /**
+   * True if a marker message is still in the ha queue.
+   */
+  private boolean markerEnqueued = false;
+
+  private boolean isPrimary;
+
+  /** @since GemFire 5.7 */
+  private byte clientConflation = HandShake.CONFLATION_DEFAULT;
+
+  /**
+   * Flag to indicate whether to keep a durable client's queue alive
+   */
+  private boolean keepalive = false;
+
+  private AccessControl postAuthzCallback;
+
+  private Subject subject;
+
+  /**
+   * For multiuser environment..
+   */
+  private ClientUserAuths clientUserAuths;
+
+  /**
+   * The version of the client
+   */
+  private Version clientVersion;
 
   /** Date on which this instances was created */
   private Date creationDate;
@@ -321,50 +309,73 @@ public class CacheClientProxy implements ClientSession {
   /**
    * true when the durable client associated with this proxy is being restarted and prevents cqs
    * from being closed and drained
-   **/
+   */
   private boolean drainLocked = false;
-  private final Object drainLock = new Object();
 
   /** number of cq drains that are currently in progress **/
   private int numDrainsInProgress = 0;
-  private final Object drainsInProgressLock = new Object();
 
-  private SecurityService securityService = SecurityService.getSecurityService();
+  static CacheClientProxy createCacheClientProxy(final CacheClientNotifier ccn,
+      final GemFireCacheImpl cache, final StatisticsFactory statsFactory,
+      final SecurityService securityService, final Socket socket,
+      final ClientProxyMembershipID proxyID, final boolean isPrimary, final byte clientConflation,
+      final Version clientVersion, final long acceptorId, final boolean notifyBySubscription) {
+
+    CacheClientProxy cacheClientProxy =
+        new CacheClientProxy(ccn, cache, statsFactory, securityService, socket, proxyID, isPrimary,
+            clientConflation, clientVersion, acceptorId, notifyBySubscription);
+
+    // Create the interest list
+    cacheClientProxy.cils[RegisterInterestTracker.interestListIndex] =
+        new ClientInterestList(cacheClientProxy, cacheClientProxy.proxyID);
+    // Create the durable interest list
+    cacheClientProxy.cils[RegisterInterestTracker.durableInterestListIndex] =
+        new ClientInterestList(cacheClientProxy, cacheClientProxy.getDurableId());
+
+    return cacheClientProxy;
+  }
 
   /**
    * Constructor.
    *
    * @param ccn The <code>CacheClientNotifier</code> registering this proxy
+   * @param cache
    * @param socket The socket between the server and the client
    * @param proxyID representing the Connection Proxy of the clien
    * @param isPrimary The boolean stating whether this prozxy is primary
-   * @throws CacheException {
+   * @param clientConflation
+   * @param clientVersion
    */
-  protected CacheClientProxy(CacheClientNotifier ccn, Socket socket,
-      ClientProxyMembershipID proxyID, boolean isPrimary, byte clientConflation,
-      Version clientVersion, long acceptorId, boolean notifyBySubscription) throws CacheException {
+  private CacheClientProxy(final CacheClientNotifier ccn, final GemFireCacheImpl cache,
+      final StatisticsFactory statsFactory, final SecurityService securityService,
+      final Socket socket, final ClientProxyMembershipID proxyID, final boolean isPrimary,
+      final byte clientConflation, final Version clientVersion, final long acceptorId,
+      final boolean notifyBySubscription) {
     initializeTransientFields(socket, proxyID, isPrimary, clientConflation, clientVersion);
-    this._cacheClientNotifier = ccn;
-    this._cache = (GemFireCacheImpl) ccn.getCache();
+    this.cacheClientNotifier = ccn;
+    this.cache = cache;
+    this.securityService = securityService;
     this._maximumMessageCount = ccn.getMaximumMessageCount();
     this._messageTimeToLive = ccn.getMessageTimeToLive();
     this._acceptorId = acceptorId;
     this.notifyBySubscription = notifyBySubscription;
-    StatisticsFactory factory = this._cache.getDistributedSystem();
-    this._statistics =
-        new CacheClientProxyStats(factory, "id_" + this.proxyID.getDistributedMember().getId()
-            + "_at_" + this._remoteHostAddress + ":" + this._socket.getPort());
 
-    // Create the interest list
-    this.cils[RegisterInterestTracker.interestListIndex] =
-        new ClientInterestList(this, this.proxyID);
-    // Create the durable interest list
-    this.cils[RegisterInterestTracker.durableInterestListIndex] =
-        new ClientInterestList(this, this.getDurableId());
+    this._statistics =
+        new CacheClientProxyStats(statsFactory, "id_" + this.proxyID.getDistributedMember().getId()
+            + "_at_" + this._remoteHostAddress + ":" + this.socket.getPort());
+
     this.postAuthzCallback = null;
-    this._cacheClientNotifier.getAcceptorStats().incCurrentQueueConnections();
+    this.cacheClientNotifier.getAcceptorStats().incCurrentQueueConnections();
     this.creationDate = new Date();
     initializeClientAuths();
+  }
+
+  boolean isClientConflationOn() {
+    return this.clientConflation == HandShake.CONFLATION_ON;
+  }
+
+  boolean isClientConflationDefault() {
+    return this.clientConflation == HandShake.CONFLATION_ON;
   }
 
   private void initializeClientAuths() {
@@ -411,13 +422,13 @@ public class CacheClientProxy implements ClientSession {
 
   private void initializeTransientFields(Socket socket, ClientProxyMembershipID pid, boolean ip,
       byte cc, Version vers) {
-    this._socket = socket;
+    this.socket = socket;
     this.proxyID = pid;
     this.connected = true;
     {
       int bufSize = 1024;
       try {
-        bufSize = _socket.getSendBufferSize();
+        bufSize = this.socket.getSendBufferSize();
         if (bufSize < 1024) {
           bufSize = 1024;
         }
@@ -450,54 +461,12 @@ public class CacheClientProxy implements ClientSession {
     return this.notifyBySubscription;
   }
 
-
   /**
    * Returns the DistributedMember represented by this proxy
    */
   public ClientProxyMembershipID getProxyID() {
     return this.proxyID;
   }
-
-  // the following code was commented out simply because it was not used
-  // /**
-  // * Determines if the proxy represents the client host (and only the host, not
-  // * necessarily the exact VM running on the host)
-  // *
-  // * @return Whether the proxy represents the client host
-  // */
-  // protected boolean representsClientHost(String clientHost)
-  // {
-  // // [bruce] TODO BUGBUGBUG: this should compare InetAddresses, not Strings
-  // return this._remoteHostAddress.equals(clientHost);
-  // }
-
-  // protected boolean representsClientVM(DistributedMember remoteMember)
-  // {
-  // // logger.warn("Is input port " + clientPort + " contained in " +
-  // // logger.warn("Does input host " + clientHost + " equal " +
-  // // this._remoteHostAddress+ ": " + representsClientHost(clientHost));
-  // // logger.warn("representsClientVM: " +
-  // // (representsClientHost(clientHost) && containsPort(clientPort)));
-  // return (proxyID.getDistributedMember().equals(remoteMember));
-  // }
-
-  // /**
-  // * Determines if the CacheClientUpdater proxied by this instance is listening
-  // * on the input clientHost and clientPort
-  // *
-  // * @param clientHost
-  // * The host name of the client to compare
-  // * @param clientPort
-  // * The port number of the client to compare
-  // *
-  // * @return Whether the CacheClientUpdater proxied by this instance is
-  // * listening on the input clientHost and clientPort
-  // */
-  // protected boolean representsCacheClientUpdater(String clientHost,
-  // int clientPort)
-  // {
-  // return (clientPort == this._socket.getPort() && representsClientHost(clientHost));
-  // }
 
   protected boolean isMember(ClientProxyMembershipID memberId) {
     return this.proxyID.equals(memberId);
@@ -522,11 +491,11 @@ public class CacheClientProxy implements ClientSession {
    * @return the socket between the server and the client
    */
   protected Socket getSocket() {
-    return this._socket;
+    return this.socket;
   }
 
   public String getSocketHost() {
-    return this._socket.getInetAddress().getHostAddress();
+    return this.socket.getInetAddress().getHostAddress();
   }
 
   protected ByteBuffer getCommBuffer() {
@@ -548,7 +517,7 @@ public class CacheClientProxy implements ClientSession {
    * @return the remote host's port
    */
   public int getRemotePort() {
-    return this._socket.getPort();
+    return this.socket.getPort();
   }
 
   /**
@@ -593,7 +562,7 @@ public class CacheClientProxy implements ClientSession {
             this.isMarkedForRemovalLock.wait();
           } catch (InterruptedException e) {
             interrupted = true;
-            this._cache.getCancelCriterion().checkCancelInProgress(e);
+            this.cache.getCancelCriterion().checkCancelInProgress(e);
           }
         } // while
       } finally {
@@ -621,7 +590,7 @@ public class CacheClientProxy implements ClientSession {
    * @return the GemFire cache
    */
   public GemFireCacheImpl getCache() {
-    return this._cache;
+    return this.cache;
   }
 
   public Set<String> getInterestRegisteredRegions() {
@@ -649,7 +618,7 @@ public class CacheClientProxy implements ClientSession {
    * @return this proxy's <code>CacheClientNotifier</code>
    */
   protected CacheClientNotifier getCacheClientNotifier() {
-    return this._cacheClientNotifier;
+    return this.cacheClientNotifier;
   }
 
   /**
@@ -852,8 +821,8 @@ public class CacheClientProxy implements ClientSession {
         }
       }
     } catch (Exception ex) {
-      if (this._cache.getSecurityLoggerI18n().warningEnabled()) {
-        this._cache.getSecurityLoggerI18n().warning(LocalizedStrings.TWO_ARG_COLON,
+      if (this.cache.getSecurityLoggerI18n().warningEnabled()) {
+        this.cache.getSecurityLoggerI18n().warning(LocalizedStrings.TWO_ARG_COLON,
             new Object[] {this, ex});
       }
     }
@@ -991,9 +960,9 @@ public class CacheClientProxy implements ClientSession {
   }
 
   private void closeSocket() {
-    if (this._socketClosed.compareAndSet(false, true)) {
+    if (this.socketClosed.compareAndSet(false, true)) {
       // Close the socket
-      this._cacheClientNotifier.getSocketCloser().asyncClose(this._socket, this._remoteHostAddress,
+      this.cacheClientNotifier.getSocketCloser().asyncClose(this.socket, this._remoteHostAddress,
           null);
       getCacheClientNotifier().getAcceptorStats().decCurrentQueueConnections();
     }
@@ -1008,7 +977,7 @@ public class CacheClientProxy implements ClientSession {
     {
       String remoteHostAddress = this._remoteHostAddress;
       if (remoteHostAddress != null) {
-        this._cacheClientNotifier.getSocketCloser().releaseResourcesForAddress(remoteHostAddress);
+        this.cacheClientNotifier.getSocketCloser().releaseResourcesForAddress(remoteHostAddress);
         this._remoteHostAddress = null;
       }
     }
@@ -1124,7 +1093,7 @@ public class CacheClientProxy implements ClientSession {
       InterestResultPolicy policy, boolean isDurable, boolean receiveValues, int interestType) {
     // Create a client interest message for the keyOfInterest
     ClientInterestMessageImpl message = new ClientInterestMessageImpl(
-        new EventID(this._cache.getDistributedSystem()), regionName, keyOfInterest, interestType,
+        new EventID(this.cache.getDistributedSystem()), regionName, keyOfInterest, interestType,
         policy.getOrdinal(), isDurable, !receiveValues, ClientInterestMessageImpl.REGISTER);
 
     // Notify all secondary proxies of a change in interest
@@ -1146,7 +1115,7 @@ public class CacheClientProxy implements ClientSession {
       String regionName, Object keyOfInterest) {
     // Get the initial value
     Get70 request = (Get70) Get70.getCommand();
-    LocalRegion lr = (LocalRegion) this._cache.getRegion(regionName);
+    LocalRegion lr = (LocalRegion) this.cache.getRegion(regionName);
     Get70.Entry entry = request.getValueAndIsObject(lr, keyOfInterest, null, null);
     boolean isObject = entry.isObject;
     byte[] value = null;
@@ -1170,7 +1139,7 @@ public class CacheClientProxy implements ClientSession {
       EventID eventId = null;
       if (clientInterestMessage == null) {
         // If the clientInterestMessage is null, create a new event id
-        eventId = new EventID(this._cache.getDistributedSystem());
+        eventId = new EventID(this.cache.getDistributedSystem());
       } else {
         // If the clientInterestMessage is not null, base the event id off its event id to fix
         // GEM-794.
@@ -1239,7 +1208,7 @@ public class CacheClientProxy implements ClientSession {
       boolean isDurable, boolean receiveValues, int interestType) {
     // Notify all secondary proxies of a change in interest
     ClientInterestMessageImpl message = new ClientInterestMessageImpl(
-        new EventID(this._cache.getDistributedSystem()), regionName, keyOfInterest, interestType,
+        new EventID(this.cache.getDistributedSystem()), regionName, keyOfInterest, interestType,
         (byte) 0, isDurable, !receiveValues, ClientInterestMessageImpl.UNREGISTER);
     notifySecondariesOfInterestChange(message);
 
@@ -1269,16 +1238,8 @@ public class CacheClientProxy implements ClientSession {
           .append("->").append(InterestType.getString(message.getInterestType()));
       logger.debug(buffer.toString());
     }
-    this._cacheClientNotifier.deliverInterestChange(this.proxyID, message);
+    this.cacheClientNotifier.deliverInterestChange(this.proxyID, message);
   }
-
-  /*
-   * protected void addFilterRegisteredClients(String regionName, Object keyOfInterest) { try {
-   * this._cacheClientNotifier.addFilterRegisteredClients(regionName, this.proxyID); } catch
-   * (RegionDestroyedException e) {
-   * logger.warn(LocalizedStrings.CacheClientProxy_0_INTEREST_REG_FOR_0_FAILED, regionName + "->" +
-   * keyOfInterest, e); } }
-   */
 
   /**
    * Registers interest in the input region name and key
@@ -1293,7 +1254,7 @@ public class CacheClientProxy implements ClientSession {
     cil.registerClientInterest(regionName, keyOfInterest, interestType, sendUpdatesAsInvalidates);
     if (flushState) {
       flushForInterestRegistration(regionName,
-          this._cache.getDistributedSystem().getDistributedMember());
+          this.cache.getDistributedSystem().getDistributedMember());
     }
     HARegionQueue queue = getHARegionQueue();
     if (queue != null) { // queue is null during initialization
@@ -1306,7 +1267,7 @@ public class CacheClientProxy implements ClientSession {
    * interest. During queue creation it is the queue's image provider.
    */
   public void flushForInterestRegistration(String regionName, DistributedMember target) {
-    Region r = this._cache.getRegion(regionName);
+    Region r = this.cache.getRegion(regionName);
     if (r == null) {
       if (logger.isDebugEnabled()) {
         logger.debug("Unable to find region '{}' to flush for interest registration", regionName);
@@ -1320,7 +1281,7 @@ public class CacheClientProxy implements ClientSession {
       if (r instanceof PartitionedRegion) {
         // need to flush all buckets. SFO should be changed to target buckets
         // belonging to a particular PR, but it doesn't have that option right now
-        sfo = new StateFlushOperation(this._cache.getDistributedSystem().getDistributionManager());
+        sfo = new StateFlushOperation(this.cache.getDistributedSystem().getDistributionManager());
       } else {
         sfo = new StateFlushOperation((DistributedRegion) r);
       }
@@ -1378,7 +1339,7 @@ public class CacheClientProxy implements ClientSession {
     if (getHARegionQueue() != null) {
       if (flushState) {
         flushForInterestRegistration(regionName,
-            this._cache.getDistributedSystem().getDistributedMember());
+            this.cache.getDistributedSystem().getDistributedMember());
       }
       getHARegionQueue().setHasRegisteredInterest(true);
     }
@@ -1643,7 +1604,7 @@ public class CacheClientProxy implements ClientSession {
     if (logger.isDebugEnabled()) {
       logger.debug("About to send message directly to {}", this);
     }
-    if (this._messageDispatcher != null && this._socket != null && !this._socket.isClosed()) {
+    if (this._messageDispatcher != null && this.socket != null && !this.socket.isClosed()) {
       // If the socket is open, send the message to it
       this._messageDispatcher.sendMessageDirectly(message);
       if (logger.isDebugEnabled()) {
@@ -1759,7 +1720,7 @@ public class CacheClientProxy implements ClientSession {
     if (this.isPrimary) {
       // Add the marker to the queue
       if (!processedMarker) {
-        EventID eventId = new EventID(this._cache.getDistributedSystem());
+        EventID eventId = new EventID(this.cache.getDistributedSystem());
         this._messageDispatcher.enqueueMarker(new ClientMarkerMessageImpl(eventId));
       }
 
@@ -1810,30 +1771,18 @@ public class CacheClientProxy implements ClientSession {
   @Override
   public String toString() {
     StringBuffer buffer = new StringBuffer();
-    buffer.append("CacheClientProxy[")
-        // .append("client proxy id=")
-        .append(this.proxyID)
-        // .append("; client host name=")
-        // .append(this._socket.getInetAddress().getCanonicalHostName())
-        // .append("; client host address=")
-        // .append(this._remoteHostAddress)
-        .append("; port=").append(this._socket.getPort()).append("; primary=").append(isPrimary)
-        .append("; version=").append(clientVersion).append("]");
+    buffer.append("CacheClientProxy[").append(this.proxyID).append("; port=")
+        .append(this.socket.getPort()).append("; primary=").append(isPrimary).append("; version=")
+        .append(clientVersion).append("]");
     return buffer.toString();
   }
 
   public String getState() {
     StringBuffer buffer = new StringBuffer();
-    buffer.append("CacheClientProxy[")
-        // .append("client proxy id=")
-        .append(this.proxyID)
-        // .append("; client host name=")
-        // .append(this._socket.getInetAddress().getCanonicalHostName())
-        // .append("; client host address=")
-        // .append(this._remoteHostAddress)
-        .append("; port=").append(this._socket.getPort()).append("; primary=").append(isPrimary)
-        .append("; version=").append(clientVersion).append("; paused=").append(isPaused())
-        .append("; alive=").append(isAlive()).append("; connected=").append(isConnected())
+    buffer.append("CacheClientProxy[").append(this.proxyID).append("; port=")
+        .append(this.socket.getPort()).append("; primary=").append(isPrimary).append("; version=")
+        .append(clientVersion).append("; paused=").append(isPaused()).append("; alive=")
+        .append(isAlive()).append("; connected=").append(isConnected())
         .append("; isMarkedForRemoval=").append(isMarkedForRemoval).append("]");
 
     if (_messageDispatcher != null && isAlive()) {
@@ -1844,15 +1793,7 @@ public class CacheClientProxy implements ClientSession {
   }
 
   public boolean isPrimary() {
-    // boolean primary = this._messageDispatcher.isAlive()
-    // || this._messageDispatcher._messageQueue.isPrimary();
-    boolean primary = this.isPrimary;
-    // System.out.println(this + ": DISPATCHER IS ALIVE: " + this._messageDispatcher.isAlive());
-    // System.out.println(this + ": DISPATCHER QUEUE IS PRIMARY: " +
-    // this._messageDispatcher._messageQueue.isPrimary());
-    // System.out.println(this + ": IS PRIMARY: " + primary);
-    return primary;
-    // return this.isPrimary ;
+    return this.isPrimary;
   }
 
   protected boolean basicIsPrimary() {
@@ -1863,16 +1804,10 @@ public class CacheClientProxy implements ClientSession {
     this.isPrimary = isPrimary;
   }
 
-  // private static int nextId = 0;
-  // static protected int getNextId() {
-  // synchronized (CacheClientProxy.class) {
-  // return ++nextId;
-  // }
-  // }
-  /*
+  /**
    * Return this client's HA region queue
    * 
-   * @returns - HARegionQueue of the client
+   * @return HARegionQueue of the client
    */
   public HARegionQueue getHARegionQueue() {
     if (this._messageDispatcher != null) {
@@ -1880,7 +1815,6 @@ public class CacheClientProxy implements ClientSession {
     }
     return null;
   }
-
 
   /**
    * Reinitialize a durable <code>CacheClientProxy</code> with a new client.
@@ -1952,7 +1886,7 @@ public class CacheClientProxy implements ClientSession {
 
         // Close the proxy
         terminateDispatching(false);
-        _cacheClientNotifier._statistics.incQueueDroppedCount();
+        cacheClientNotifier._statistics.incQueueDroppedCount();
 
         /**
          * Setting the expiration task to null again and cancelling existing one, if any. See
@@ -1978,7 +1912,7 @@ public class CacheClientProxy implements ClientSession {
 
     };
     if (this._durableExpirationTask.compareAndSet(null, task)) {
-      _cache.getCCPTimer().schedule(task, getDurableTimeout() * 1000L);
+      cache.getCCPTimer().schedule(task, getDurableTimeout() * 1000L);
     }
   }
 
@@ -1996,11 +1930,131 @@ public class CacheClientProxy implements ClientSession {
     }
   }
 
+  public static void setTestHook(TestHook value) {
+    testHook = value;
+  }
+
+  public static void unsetTestHook() {
+    testHook = null;
+  }
+
+  public static TestHook getTestHook() {
+    return testHook;
+  }
+
+  public static void setSlowStartForTesting() {
+    isSlowStartForTesting = true;
+  }
+
+  static void unsetSlowStartForTesting() {
+    isSlowStartForTesting = false;
+  }
+
+  static void setAfterMessageCreationForTesting() {
+    afterMessageCreationForTesting = true;
+  }
+
+  static void unsetAfterMessageCreationForTesting() {
+    afterMessageCreationForTesting = false;
+  }
+
+  Socket getSocketForTesting() {
+    return this.socket;
+  }
+
+  ClientInterestList[] getClientInterestListForTesting() {
+    return this.cils;
+  }
+
+  MessageDispatcher getMessageDispatcherForTesting() {
+    return this._messageDispatcher;
+  }
+
+  /**
+   * Returns the current number of CQS the client installed.
+   *
+   * @return int the current count of CQs for this client
+   */
+  public int getCqCount() {
+    synchronized (this) {
+      return this._statistics.getCqCount();
+    }
+  }
+
+  /**
+   * Increment the number of CQs the client installed
+   *
+   */
+  public void incCqCount() {
+    synchronized (this) {
+      this._statistics.incCqCount();
+    }
+  }
+
+  /**
+   * Decrement the number of CQs the client installed
+   *
+   */
+  public synchronized void decCqCount() {
+    synchronized (this) {
+      this._statistics.decCqCount();
+    }
+  }
+
+  /**
+   * Returns true if the client has one CQ
+   *
+   * @return true if the client has one CQ
+   */
+  public boolean hasOneCq() {
+    synchronized (this) {
+      return this._statistics.getCqCount() == 1;
+    }
+  }
+
+  /**
+   * Returns true if the client has no CQs
+   *
+   * @return true if the client has no CQs
+   */
+  public boolean hasNoCq() {
+    synchronized (this) {
+      return this._statistics.getCqCount() == 0;
+    }
+  }
+
+  /**
+   * Get map of regions with empty data policy
+   *
+   * @since GemFire 6.1
+   */
+  public Map getRegionsWithEmptyDataPolicy() {
+    return regionsWithEmptyDataPolicy;
+  }
+
+  public int incrementAndGetPingCounter() {
+    int pingCount = this.pingCounter.incrementAndGet();
+    return pingCount;
+  }
+
+  public void resetPingCounter() {
+    this.pingCounter.set(0);
+  }
+
+  /**
+   * Returns the number of seconds that have elapsed since the Client proxy created.
+   *
+   * @since GemFire 7.0
+   */
+  public long getUpTime() {
+    return (System.currentTimeMillis() - this.creationDate.getTime()) / 1000;
+  }
+
   /**
    * Class <code>ClientInterestList</code> provides a convenient interface for manipulating client
    * interest information.
    */
-  static protected class ClientInterestList {
+  static class ClientInterestList {
 
     final CacheClientProxy ccp;
 
@@ -2035,7 +2089,7 @@ public class CacheClientProxy implements ClientSession {
       }
       Set keysRegistered = null;
       synchronized (this.interestListLock) {
-        LocalRegion r = (LocalRegion) this.ccp._cache.getRegion(regionName, true);
+        LocalRegion r = (LocalRegion) this.ccp.cache.getRegion(regionName, true);
         if (r == null) {
           throw new RegionDestroyedException("Region could not be found for interest registration",
               regionName);
@@ -2059,7 +2113,7 @@ public class CacheClientProxy implements ClientSession {
 
     protected FilterProfile getProfile(String regionName) {
       try {
-        return this.ccp._cache.getFilterProfile(regionName);
+        return this.ccp.cache.getFilterProfile(regionName);
       } catch (CancelException e) {
         return null;
       }
@@ -2225,7 +2279,6 @@ public class CacheClientProxy implements ClientSession {
     }
   }
 
-
   /**
    * Class <code>MessageDispatcher</code> is a <code>Thread</code> that processes messages bound for
    * the client by taking messsages from the message queue and sending them to the client over the
@@ -2238,32 +2291,15 @@ public class CacheClientProxy implements ClientSession {
      */
     protected final HARegionQueue _messageQueue;
 
-    // /**
-    // * An int used to keep track of the number of messages dropped for logging
-    // * purposes. If greater than zero then a warning has been logged about
-    // * messages being dropped.
-    // */
-    // private int _numberOfMessagesDropped = 0;
-
     /**
      * The proxy for which this dispatcher is processing messages
      */
     private final CacheClientProxy _proxy;
 
-    // /**
-    // * The conflator faciliates message conflation
-    // */
-    // protected BridgeEventConflator _eventConflator;
-
     /**
      * Whether the dispatcher is stopped
      */
     private volatile boolean _isStopped = true;
-
-    /**
-     * guarded.By _pausedLock
-     */
-    // boolean _isPausedDispatcher = false;
 
     /**
      * A lock object used to control pausing this dispatcher
@@ -2278,11 +2314,6 @@ public class CacheClientProxy implements ClientSession {
     private final ReadWriteLock socketLock = new ReentrantReadWriteLock();
 
     private final Lock socketWriteLock = socketLock.writeLock();
-    // /**
-    // * A boolean verifying whether a warning has already been issued if the
-    // * message queue has reached its capacity.
-    // */
-    // private boolean _messageQueueCapacityReachedWarning = false;
 
     /**
      * Constructor.
@@ -2307,7 +2338,7 @@ public class CacheClientProxy implements ClientSession {
         HARegionQueueAttributes harq = new HARegionQueueAttributes();
         harq.setBlockingQueueCapacity(proxy._maximumMessageCount);
         harq.setExpiryTime(proxy._messageTimeToLive);
-        ((HAContainerWrapper) proxy._cacheClientNotifier.getHaContainer())
+        ((HAContainerWrapper) proxy.cacheClientNotifier.getHaContainer())
             .putProxy(HARegionQueue.createRegionName(getProxy().getHARegionName()), getProxy());
         boolean createDurableQueue = proxy.proxyID.isDurable();
         boolean canHandleDelta = (proxy.clientVersion.compareTo(Version.GFE_61) >= 0)
@@ -2318,7 +2349,7 @@ public class CacheClientProxy implements ClientSession {
         }
         this._messageQueue = HARegionQueue.getHARegionQueueInstance(getProxy().getHARegionName(),
             getCache(), harq, HARegionQueue.BLOCKING_HA_QUEUE, createDurableQueue,
-            proxy._cacheClientNotifier.getHaContainer(), proxy.getProxyID(),
+            proxy.cacheClientNotifier.getHaContainer(), proxy.getProxyID(),
             this._proxy.clientConflation, this._proxy.isPrimary(), canHandleDelta);
         // Check if interests were registered during HARegion GII.
         if (this._proxy.hasRegisteredInterested()) {
@@ -2409,10 +2440,6 @@ public class CacheClientProxy implements ClientSession {
             Thread.sleep(500);
           } catch (InterruptedException e) {
             interrupted = true;
-            /*
-             * GemFireCache c = (GemFireCache)_cache;
-             * c.getDistributedSystem().getCancelCriterion().checkCancelInProgress(e);
-             */
           } catch (CancelException e) {
             break;
           } catch (CacheException e) {
@@ -2507,7 +2534,7 @@ public class CacheClientProxy implements ClientSession {
       ClientMessage clientMessage = null;
       while (!isStopped()) {
         // SystemFailure.checkFailure(); DM's stopper does this
-        if (this._proxy._cache.getCancelCriterion().isCancelInProgress()) {
+        if (this._proxy.cache.getCancelCriterion().isCancelInProgress()) {
           break;
         }
         try {
@@ -2756,9 +2783,6 @@ public class CacheClientProxy implements ClientSession {
       }
       Message message = null;
 
-      // byte[] latestValue =
-      // this._eventConflator.getLatestValue(clientMessage);
-
       if (clientMessage instanceof ClientUpdateMessage) {
         byte[] latestValue = (byte[]) ((ClientUpdateMessage) clientMessage).getValue();
         if (logger.isTraceEnabled()) {
@@ -2775,7 +2799,7 @@ public class CacheClientProxy implements ClientSession {
 
         message = ((ClientUpdateMessageImpl) clientMessage).getMessage(getProxy(), latestValue);
 
-        if (AFTER_MESSAGE_CREATION_FLAG) {
+        if (afterMessageCreationForTesting) {
           ClientServerObserver bo = ClientServerObserverHolder.getInstance();
           bo.afterMessageCreation(message);
         }
@@ -2783,36 +2807,8 @@ public class CacheClientProxy implements ClientSession {
         message = clientMessage.getMessage(getProxy(), true /* notify */);
       }
 
-      // //////////////////////////////
-      // TEST CODE BEGIN (Throws exception to test closing proxy)
-      // if (true) throw new IOException("test");
-      // TEST CODE END
-      // //////////////////////////////
-      // Message message = ((ClientUpdateMessageImpl)clientMessage).getMessage(getProxy().proxyID,
-      // latestValue);
-      // Message message = clientMessage.getMessage(); removed during merge.
-      // BugFix for BUG#38206 and BUG#37791
       if (!this._proxy.isPaused()) {
         sendMessage(message);
-
-        // //////////////////////////////
-        // TEST CODE BEGIN (Throws exception to test closing proxy)
-        // if (true) throw new IOException("test");
-        // TEST CODE END
-        // //////////////////////////////
-        // Message message = ((ClientUpdateMessageImpl)clientMessage).getMessage(getProxy().proxyID,
-        // latestValue);
-        // Message message = clientMessage.getMessage(); removed during merge.
-        // message.setComms(getSocket(), getCommBuffer(), getStatistics());
-        // message.send();
-
-        // //////////////////////////////
-        // TEST CODE BEGIN (Introduces random wait in client)
-        // Sleep a random number of ms
-        // java.util.Random rand = new java.util.Random();
-        // try {Thread.sleep(rand.nextInt(5));} catch (InterruptedException e) {}
-        // TEST CODE END
-        // //////////////////////////////
 
         if (logger.isTraceEnabled()) {
           logger.trace("{}: Dispatched {}", this, clientMessage);
@@ -2855,7 +2851,7 @@ public class CacheClientProxy implements ClientSession {
       try {
         this._messageQueue.put(clientMessage);
         if (this._proxy.isPaused() && this._proxy.isDurable()) {
-          this._proxy._cacheClientNotifier._statistics.incEventEnqueuedWhileClientAwayCount();
+          this._proxy.cacheClientNotifier._statistics.incEventEnqueuedWhileClientAwayCount();
           if (logger.isDebugEnabled()) {
             logger.debug("{}: Queued message while Durable Client is away {}", this, clientMessage);
           }
@@ -2959,7 +2955,7 @@ public class CacheClientProxy implements ClientSession {
       this._pausedLock.notifyAll();
     }
 
-    protected Object deserialize(byte[] serializedBytes) {
+    private Object deserialize(byte[] serializedBytes) {
       Object deserializedObject = serializedBytes;
       // This is a debugging method so ignore all exceptions like
       // ClassNotFoundException
@@ -2983,89 +2979,7 @@ public class CacheClientProxy implements ClientSession {
     }
   }
 
-  /**
-   * Returns the current number of CQS the client installed.
-   *
-   * @return int the current count of CQs for this client
-   */
-  public int getCqCount() {
-    synchronized (this) {
-      return this._statistics.getCqCount();
-    }
-  }
-
-  /**
-   * Increment the number of CQs the client installed
-   *
-   */
-  public void incCqCount() {
-    synchronized (this) {
-      this._statistics.incCqCount();
-    }
-  }
-
-  /**
-   * Decrement the number of CQs the client installed
-   *
-   */
-  public synchronized void decCqCount() {
-    synchronized (this) {
-      this._statistics.decCqCount();
-    }
-  }
-
-  /**
-   * Returns true if the client has one CQ
-   *
-   * @return true if the client has one CQ
-   */
-  public boolean hasOneCq() {
-    synchronized (this) {
-      return this._statistics.getCqCount() == 1;
-    }
-  }
-
-  /**
-   * Returns true if the client has no CQs
-   *
-   * @return true if the client has no CQs
-   */
-  public boolean hasNoCq() {
-    synchronized (this) {
-      return this._statistics.getCqCount() == 0;
-    }
-  }
-
-  /**
-   * Get map of regions with empty data policy
-   *
-   * @since GemFire 6.1
-   */
-  public Map getRegionsWithEmptyDataPolicy() {
-    return regionsWithEmptyDataPolicy;
-  }
-
-  public int incrementAndGetPingCounter() {
-    int pingCount = this.pingCounter.incrementAndGet();
-    return pingCount;
-  }
-
-  public void resetPingCounter() {
-    this.pingCounter.set(0);
-  }
-
-  /**
-   * Returns the number of seconds that have elapsed since the Client proxy created.
-   * 
-   * @since GemFire 7.0
-   */
-  public long getUpTime() {
-    return (long) ((System.currentTimeMillis() - this.creationDate.getTime()) / 1000);
-  }
-
   public interface TestHook {
-    public void doTestHook(String spot);
+    void doTestHook(String spot);
   }
-
-  public static TestHook testHook;
 }

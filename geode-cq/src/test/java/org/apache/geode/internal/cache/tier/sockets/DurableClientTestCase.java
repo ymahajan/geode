@@ -439,15 +439,15 @@ public class DurableClientTestCase extends JUnit4DistributedTestCase {
         // Find the proxy
         CacheClientProxy proxy = getClientProxy();
         assertNotNull(proxy);
-        assertNotNull(proxy._socket);
+        assertNotNull(proxy.getSocketForTesting());
         long end = System.currentTimeMillis() + 60000;
 
-        while (!proxy._socket.isClosed()) {
+        while (!proxy.getSocketForTesting().isClosed()) {
           if (System.currentTimeMillis() > end) {
             break;
           }
         }
-        assertTrue(proxy._socket.isClosed());
+        assertTrue(proxy.getSocketForTesting().isClosed());
       }
     });
 

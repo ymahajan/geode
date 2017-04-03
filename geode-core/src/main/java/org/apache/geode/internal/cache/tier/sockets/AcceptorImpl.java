@@ -57,6 +57,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.net.ssl.SSLException;
 
+import org.apache.geode.CancelCriterion;
+import org.apache.geode.StatisticsFactory;
+import org.apache.geode.internal.statistics.DummyStatisticsFactory;
 import org.apache.logging.log4j.Logger;
 
 import org.apache.geode.CancelException;
@@ -97,7 +100,7 @@ import org.apache.geode.internal.util.ArrayUtils;
  * @since GemFire 2.0.2
  */
 @SuppressWarnings("deprecation")
-public class AcceptorImpl extends Acceptor implements Runnable {
+public class AcceptorImpl implements Acceptor, Runnable {
   private static final Logger logger = LogService.getLogger();
 
   private static final boolean isJRockit = System.getProperty("java.vm.name").contains("JRockit");
@@ -283,7 +286,8 @@ public class AcceptorImpl extends Acceptor implements Runnable {
    * @param internalCache The GemFire cache whose contents is served to clients
    * @param maxConnections the maximum number of connections allowed in the server pool
    * @param maxThreads the maximum number of threads allowed in the server pool
-   * 
+   *
+   * @param cancelCriterion
    * @see SocketCreator#createServerSocket(int, int, InetAddress)
    * @see ClientHealthMonitor
    * @since GemFire 5.7
@@ -292,12 +296,18 @@ public class AcceptorImpl extends Acceptor implements Runnable {
       int socketBufferSize, int maximumTimeBetweenPings, InternalCache internalCache,
       int maxConnections, int maxThreads, int maximumMessageCount, int messageTimeToLive,
       ConnectionListener listener, List overflowAttributesList, boolean isGatewayReceiver,
-      List<GatewayTransportFilter> transportFilter, boolean tcpNoDelay) throws IOException {
+      List<GatewayTransportFilter> transportFilter, boolean tcpNoDelay,
+      final CancelCriterion cancelCriterion) throws IOException {
     this.bindHostName = calcBindHostName(internalCache, bindHostName);
     this.connectionListener = listener == null ? new ConnectionListenerAdapter() : listener;
     this.notifyBySubscription = notifyBySubscription;
     this.isGatewayReceiver = isGatewayReceiver;
     this.gatewayTransportFilters = transportFilter;
+
+    this.socketBufferSize = socketBufferSize;
+    this.cache = internalCache;
+    this.crHelper = new CachedRegionHelper(this.cache);
+
     {
       int tmp_maxConnections = maxConnections;
       if (tmp_maxConnections < MINIMUM_MAX_CONNECTIONS) {
@@ -375,12 +385,6 @@ public class AcceptorImpl extends Acceptor implements Runnable {
             .getSocketCreatorForComponent(SecurableCommunicationChannel.GATEWAY);
       }
 
-      final GemFireCacheImpl gc;
-      if (getCachedRegionHelper() != null) {
-        gc = (GemFireCacheImpl) getCachedRegionHelper().getCache();
-      } else {
-        gc = null;
-      }
       final int backLog = Integer.getInteger(BACKLOG_PROPERTY_NAME, DEFAULT_BACKLOG).intValue();
       final long tilt = System.currentTimeMillis() + 120 * 1000;
 
@@ -422,9 +426,7 @@ public class AcceptorImpl extends Acceptor implements Runnable {
               Thread.currentThread().interrupt();
             }
           }
-          if (gc != null) {
-            gc.getCancelCriterion().checkCancelInProgress(null);
-          }
+          cancelCriterion.checkCancelInProgress(null);
         } // for
       } // isSelector
       else { // !isSelector
@@ -452,9 +454,7 @@ public class AcceptorImpl extends Acceptor implements Runnable {
               Thread.currentThread().interrupt();
             }
           }
-          if (gc != null) {
-            gc.getCancelCriterion().checkCancelInProgress(null);
-          }
+          cancelCriterion.checkCancelInProgress(null);
         } // for
       } // !isSelector
 
@@ -485,15 +485,15 @@ public class AcceptorImpl extends Acceptor implements Runnable {
 
     }
 
-    this.cache = internalCache;
-    this.crHelper = new CachedRegionHelper(this.cache);
+    final StatisticsFactory statsFactory =
+        isGatewayReceiver ? new DummyStatisticsFactory() : this.cache.getDistributedSystem();
 
-    this.clientNotifier = CacheClientNotifier.getInstance(cache, this.stats, maximumMessageCount,
-        messageTimeToLive, connectionListener, overflowAttributesList, isGatewayReceiver);
-    this.socketBufferSize = socketBufferSize;
+    this.clientNotifier =
+        CacheClientNotifier.getInstance(this.cache, this.stats, statsFactory, maximumMessageCount,
+            messageTimeToLive, this.connectionListener, overflowAttributesList, isGatewayReceiver);
 
     // Create the singleton ClientHealthMonitor
-    this.healthMonitor = ClientHealthMonitor.getInstance(internalCache, maximumTimeBetweenPings,
+    this.healthMonitor = ClientHealthMonitor.getInstance(this.cache, maximumTimeBetweenPings,
         this.clientNotifier.getStats());
 
     {

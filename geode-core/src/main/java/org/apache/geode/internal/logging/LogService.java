@@ -151,6 +151,16 @@ public class LogService extends LogManager {
   }
 
   /**
+   * Returns a Logger with the name of @{link SECURITY_LOGGER_NAME}.
+   *
+   * @return The security Logger.
+   */
+  public static Logger getSecurityLogger() {
+    return new FastLogger(
+        LogManager.getLogger(SECURITY_LOGGER_NAME, GemFireParameterizedMessageFactory.INSTANCE));
+  }
+
+  /**
    * Returns a LogWriterLogger that is decorated with the LogWriter and LogWriterI18n methods.
    * <p>
    * This is the bridge to LogWriter and LogWriterI18n that we need to eventually stop using in

@@ -34,11 +34,8 @@ import static org.apache.geode.distributed.ConfigurationProperties.*;
 
 /**
  * This class represents a ConnectionProxy of the CacheClient
- * 
- * 
- * 
  */
-public final class ClientProxyMembershipID
+public class ClientProxyMembershipID
     implements DataSerializableFixedID, Serializable, Externalizable {
 
   private static final Logger logger = LogService.getLogger();

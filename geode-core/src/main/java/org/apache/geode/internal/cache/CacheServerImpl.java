@@ -317,7 +317,7 @@ public class CacheServerImpl extends AbstractCacheServer implements Distribution
         getSocketBufferSize(), getMaximumTimeBetweenPings(), this.cache, getMaxConnections(),
         getMaxThreads(), getMaximumMessageCount(), getMessageTimeToLive(), this.loadMonitor,
         overflowAttributesList, this.isGatewayReceiver, this.gatewayTransportFilters,
-        this.tcpNoDelay);
+        this.tcpNoDelay, this.cache.getCancelCriterion());
 
     this.acceptor.start();
     this.advisor.handshake();

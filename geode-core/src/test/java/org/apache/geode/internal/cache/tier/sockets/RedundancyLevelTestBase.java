@@ -189,10 +189,10 @@ public class RedundancyLevelTestBase extends JUnit4DistributedTestCase {
           String excuse;
 
           public boolean done() {
-            if (proxy._messageDispatcher == null) {
+            if (proxy.getMessageDispatcherForTesting() == null) {
               return false;
             }
-            return proxy._messageDispatcher.isAlive();
+            return proxy.getMessageDispatcherForTesting().isAlive();
           }
 
           public String description() {
@@ -245,7 +245,7 @@ public class RedundancyLevelTestBase extends JUnit4DistributedTestCase {
       if (iter_prox.hasNext()) {
         CacheClientProxy proxy = (CacheClientProxy) iter_prox.next();
         assertFalse("Dispatcher on secondary should not be alive",
-            proxy._messageDispatcher.isAlive());
+            proxy.getMessageDispatcherForTesting().isAlive());
       }
 
     } catch (Exception ex) {
@@ -427,8 +427,10 @@ public class RedundancyLevelTestBase extends JUnit4DistributedTestCase {
           String excuse;
 
           public boolean done() {
-            Set keysMap = (Set) ccp.cils[RegisterInterestTracker.interestListIndex]
-                .getProfile(Region.SEPARATOR + REGION_NAME).getKeysOfInterestFor(ccp.getProxyID());
+            Set keysMap = (Set) ccp
+                .getClientInterestListForTesting()[RegisterInterestTracker.interestListIndex]
+                    .getProfile(Region.SEPARATOR + REGION_NAME)
+                    .getKeysOfInterestFor(ccp.getProxyID());
             if (keysMap == null) {
               excuse = "keys of interest is null";
               return false;
@@ -446,8 +448,9 @@ public class RedundancyLevelTestBase extends JUnit4DistributedTestCase {
         };
         Wait.waitForCriterion(wc, 180 * 1000, 2 * 1000, true);
 
-        Set keysMap = ccp.cils[RegisterInterestTracker.interestListIndex]
-            .getProfile(Region.SEPARATOR + REGION_NAME).getKeysOfInterestFor(ccp.getProxyID());
+        Set keysMap =
+            ccp.getClientInterestListForTesting()[RegisterInterestTracker.interestListIndex]
+                .getProfile(Region.SEPARATOR + REGION_NAME).getKeysOfInterestFor(ccp.getProxyID());
         assertTrue(keysMap.contains(k1));
         assertTrue(keysMap.contains(k2));
 

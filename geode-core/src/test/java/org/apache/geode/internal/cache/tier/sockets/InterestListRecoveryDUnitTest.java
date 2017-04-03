@@ -434,8 +434,8 @@ public class InterestListRecoveryDUnitTest extends JUnit4DistributedTestCase {
   public static Set getKeysOfInterestMap(CacheClientProxy proxy, String regionName) {
     // assertNotNull(proxy.cils[RegisterInterestTracker.interestListIndex]);
     // assertNotNull(proxy.cils[RegisterInterestTracker.interestListIndex]._keysOfInterest);
-    return proxy.cils[RegisterInterestTracker.interestListIndex].getProfile(regionName)
-        .getKeysOfInterestFor(proxy.getProxyID());
+    return proxy.getClientInterestListForTesting()[RegisterInterestTracker.interestListIndex]
+        .getProfile(regionName).getKeysOfInterestFor(proxy.getProxyID());
   }
 
   @Override

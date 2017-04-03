@@ -91,31 +91,26 @@ public abstract class BaseCommand implements Command {
   private static final int MAX_INCOMING_MSGS =
       Integer.getInteger("BridgeServer.MAX_INCOMING_MSGS", -1).intValue();
 
-  private static final Semaphore incomingDataLimiter;
+  // backport requires that this is fair since we inc by values > 1
+  private static final Semaphore incomingDataLimiter =
+      createIncomingLimiterSemaphore(MAX_INCOMING_DATA, true);
 
-  private static final Semaphore incomingMsgLimiter;
-  static {
-    Semaphore tmp;
-    if (MAX_INCOMING_DATA > 0) {
-      // backport requires that this is fair since we inc by values > 1
-      tmp = new Semaphore(MAX_INCOMING_DATA, true);
-    } else {
-      tmp = null;
-    }
-    incomingDataLimiter = tmp;
-    if (MAX_INCOMING_MSGS > 0) {
-      tmp = new Semaphore(MAX_INCOMING_MSGS, false); // unfair for best
-      // performance
-    } else {
-      tmp = null;
-    }
-    incomingMsgLimiter = tmp;
+  // unfair for best performance
+  private static final Semaphore incomingMsgLimiter =
+      createIncomingLimiterSemaphore(MAX_INCOMING_MSGS, false);
 
+  private static Semaphore createIncomingLimiterSemaphore(final int maximum, final boolean fair) {
+    Semaphore semaphore = null;
+    if (maximum > 0) {
+      semaphore = new Semaphore(maximum, fair);
+    }
+    return semaphore;
   }
 
   protected SecurityService securityService = IntegratedSecurityService.getSecurityService();
 
-  final public void execute(Message msg, ServerConnection servConn) {
+  @Override
+  public void execute(final Message msg, final ServerConnection servConn) {
     // Read the request and update the statistics
     long start = DistributionStats.getStatTime();
     // servConn.resetTransientData();

@@ -99,7 +99,7 @@ public class ClientConflationDUnitTest extends JUnit4DistributedTestCase {
    *
    */
   public static void setIsSlowStart() {
-    CacheClientProxy.isSlowStartForTesting = true;
+    CacheClientProxy.setSlowStartForTesting();
     System.setProperty("slowStartTimeForTesting", "15000");
   }
 

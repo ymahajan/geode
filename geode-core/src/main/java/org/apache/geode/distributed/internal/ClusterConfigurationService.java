@@ -386,10 +386,22 @@ public class ClusterConfigurationService {
 
     createConfigDirIfNecessary(groupName);
 
-    byte[] jarBytes = locators.stream()
-        .map((DistributedMember locator) -> downloadJarFromLocator(locator, groupName, jarName))
-        .filter(Objects::nonNull).findFirst().orElseThrow(() -> new IllegalStateException(
-            "No locators have a deployed jar named " + jarName + " in " + groupName));
+    byte[] jarBytes = null;
+    for (DistributedMember locator : locators) {
+      jarBytes = downloadJarFromLocator(locator, groupName, jarName);
+      if (jarBytes != null) {
+        break;
+      }
+    }
+    if (jarBytes == null) {
+      throw new IllegalStateException(
+          "No locators have a deployed jar named " + jarName + " in " + groupName);
+    }
+
+    // byte[] jarBytes = locators.stream()
+    // .map((DistributedMember locator) -> downloadJarFromLocator(locator, groupName, jarName))
+    // .filter(Objects::nonNull).findFirst().orElseThrow(() -> new IllegalStateException(
+    // "No locators have a deployed jar named " + jarName + " in " + groupName));
 
     File jarToWrite = getPathToJarOnThisLocator(groupName, jarName).toFile();
     FileUtils.writeByteArrayToFile(jarToWrite, jarBytes);

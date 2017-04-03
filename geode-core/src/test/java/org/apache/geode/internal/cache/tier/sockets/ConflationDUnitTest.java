@@ -112,7 +112,7 @@ public class ConflationDUnitTest extends JUnit4DistributedTestCase {
    * 
    */
   public static void setIsSlowStart(String milis) {
-    CacheClientProxy.isSlowStartForTesting = true;
+    CacheClientProxy.setSlowStartForTesting();
     System.setProperty("slowStartTimeForTesting", milis);
   }
 
@@ -121,7 +121,7 @@ public class ConflationDUnitTest extends JUnit4DistributedTestCase {
    *
    */
   public static void unsetIsSlowStart() {
-    CacheClientProxy.isSlowStartForTesting = false;
+    CacheClientProxy.unsetSlowStartForTesting();
   }
 
   /**

@@ -21,23 +21,22 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.apache.geode.tools.pulse.internal.controllers.PulseController;
+import org.apache.commons.lang.StringUtils;
 import org.apache.geode.tools.pulse.internal.data.Cluster;
 import org.apache.geode.tools.pulse.internal.data.PulseConstants;
 import org.apache.geode.tools.pulse.internal.data.Repository;
 import org.apache.geode.tools.pulse.internal.log.PulseLogWriter;
-import org.apache.geode.tools.pulse.internal.util.StringUtils;
 import org.apache.geode.tools.pulse.internal.util.TimeUtils;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 
-import javax.servlet.http.HttpServletRequest;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import javax.servlet.http.HttpServletRequest;
 
 /**
  * Class ClusterSelectedRegionService
@@ -170,12 +169,8 @@ public class ClusterSelectedRegionService implements PulseService {
         regionMember.put("sockets", member.getTotalFileDescriptorOpen());
         regionMember.put("threads", member.getNumThreads());
 
-        if (PulseController.getPulseProductSupport()
-            .equalsIgnoreCase(PulseConstants.PRODUCT_NAME_SQLFIRE)) {
-          regionMember.put("clients", member.getNumSqlfireClients());
-        } else {
-          regionMember.put("clients", member.getMemberClientsHMap().size());
-        }
+        regionMember.put("clients", member.getMemberClientsHMap().size());
+
         regionMember.put("queues", member.getQueueBacklog());
         memberArray.add(regionMember);
       }
@@ -190,19 +185,15 @@ public class ClusterSelectedRegionService implements PulseService {
           reg.isEnableOffHeapMemory() ? PulseService.VALUE_ON : PulseService.VALUE_OFF);
 
       String regCompCodec = reg.getCompressionCodec();
-      if (StringUtils.isNotNullNotEmptyNotWhiteSpace(regCompCodec)) {
+      if (StringUtils.isNotBlank(regCompCodec)) {
         regionJSON.put("compressionCodec", reg.getCompressionCodec());
       } else {
         regionJSON.put("compressionCodec", PulseService.VALUE_NA);
       }
 
-      if (PulseConstants.PRODUCT_NAME_SQLFIRE
-          .equalsIgnoreCase(PulseController.getPulseProductSupport())) {
-        // Convert region path to dot separated region path
-        regionJSON.put("regionPath", StringUtils.getTableNameFromRegionName(reg.getFullPath()));
-      } else {
-        regionJSON.put("regionPath", reg.getFullPath());
-      }
+
+      regionJSON.put("regionPath", reg.getFullPath());
+
 
       regionJSON.put("memoryReadsTrend", mapper.<JsonNode>valueToTree(
           reg.getRegionStatisticTrend(Cluster.Region.REGION_STAT_GETS_PER_SEC_TREND)));

@@ -31,10 +31,10 @@ import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
 import static org.apache.geode.distributed.ConfigurationProperties.MCAST_PORT;
 import static org.junit.Assert.assertNotNull;
@@ -69,13 +69,14 @@ public class LuceneIndexRecoveryHAIntegrationTest {
   }
 
   /**
-   * On rebalance, new repository manager will be created. It will try to read fileRegion and
-   * construct index. This test simulates the same.
+   * On rebalance, new repository manager will be created. It will try to read fileAndChunkRegion
+   * and construct index. This test simulates the same.
    */
   // @Test
-  public void recoverRepoInANewNode() throws BucketNotFoundException, IOException {
+  public void recoverRepoInANewNode()
+      throws BucketNotFoundException, IOException, InterruptedException {
     LuceneServiceImpl service = (LuceneServiceImpl) LuceneServiceProvider.get(cache);
-    service.createIndex("index1", "/userRegion", indexedFields);
+    service.createIndexFactory().setFields(indexedFields).create("index1", "/userRegion");
     PartitionAttributes<String, String> attrs =
         new PartitionAttributesFactory().setTotalNumBuckets(1).create();
     RegionFactory<String, String> regionfactory =
@@ -87,7 +88,7 @@ public class LuceneIndexRecoveryHAIntegrationTest {
         (LuceneIndexForPartitionedRegion) service.getIndex("index1", "/userRegion");
     // put an entry to create the bucket
     userRegion.put("rebalance", "test");
-    index.waitUntilFlushed(30000);
+    service.waitUntilFlushed("index1", "userRegion", 30000, TimeUnit.MILLISECONDS);
 
     RepositoryManager manager = new PartitionedRepositoryManager((LuceneIndexImpl) index, mapper);
     IndexRepository repo = manager.getRepository(userRegion, 0, null);
@@ -98,7 +99,7 @@ public class LuceneIndexRecoveryHAIntegrationTest {
 
     // close the region to simulate bucket movement. New node will create repo using data persisted
     // by old region
-    // ((PartitionedRegion)index.fileRegion).close();
+    // ((PartitionedRegion)index.fileAndChunkRegion).close();
     // ((PartitionedRegion)index.chunkRegion).close();
     userRegion.close();
 
@@ -112,9 +113,11 @@ public class LuceneIndexRecoveryHAIntegrationTest {
 
 
 
-  private void verifyIndexFinishFlushing(String indexName, String regionName) {
-    LuceneIndex index = LuceneServiceProvider.get(cache).getIndex(indexName, regionName);
-    boolean flushed = index.waitUntilFlushed(60000);
+  private void verifyIndexFinishFlushing(String indexName, String regionName)
+      throws InterruptedException {
+    LuceneService service = LuceneServiceProvider.get(cache);
+    LuceneIndex index = service.getIndex(indexName, regionName);
+    boolean flushed = service.waitUntilFlushed(indexName, regionName, 60000, TimeUnit.MILLISECONDS);
     assertTrue(flushed);
   }
 }

@@ -140,6 +140,8 @@ public abstract class AbstractRegion implements Region, RegionAttributes, Attrib
 
   protected Set<String> asyncEventQueueIds;
 
+  protected Set<String> visibleAsyncEventQueueIds;
+
   protected Set<String> allGatewaySenderIds;
 
   protected boolean enableSubscriptionConflation;
@@ -540,6 +542,10 @@ public abstract class AbstractRegion implements Region, RegionAttributes, Attrib
     return this.asyncEventQueueIds;
   }
 
+  public Set<String> getVisibleAsyncEventQueueIds() {
+    return this.visibleAsyncEventQueueIds;
+  }
+
   public final Set<String> getAllGatewaySenderIds() {
     return Collections.unmodifiableSet(this.allGatewaySenderIds);
   }
@@ -901,11 +907,13 @@ public abstract class AbstractRegion implements Region, RegionAttributes, Attrib
 
   public void addAsyncEventQueueId(String asyncEventQueueId) {
     getAsyncEventQueueIds().add(asyncEventQueueId);
+    getVisibleAsyncEventQueueIds().add(asyncEventQueueId);
     setAllGatewaySenderIds();
   }
 
   public void removeAsyncEventQueueId(String asyncEventQueueId) {
     getAsyncEventQueueIds().remove(asyncEventQueueId);
+    getVisibleAsyncEventQueueIds().remove(asyncEventQueueId);
     setAllGatewaySenderIds();
   }
 
@@ -919,6 +927,17 @@ public abstract class AbstractRegion implements Region, RegionAttributes, Attrib
       tmp.add(AsyncEventQueueImpl.getSenderIdFromAsyncEventQueueId(asyncQueueId));
     }
     allGatewaySenderIds = tmp;
+  }
+
+  private void initializeVisibleAsyncEventQueueIds(InternalRegionArguments internalRegionArgs) {
+    Set<String> asyncEventQueueIds = new CopyOnWriteArraySet<>();
+    // Add all configured aeqIds
+    asyncEventQueueIds.addAll(getAsyncEventQueueIds());
+    // Remove all internal aeqIds from internal region args if necessary
+    if (internalRegionArgs.getInternalAsyncEventQueueIds() != null) {
+      asyncEventQueueIds.removeAll(internalRegionArgs.getInternalAsyncEventQueueIds());
+    }
+    this.visibleAsyncEventQueueIds = asyncEventQueueIds;
   }
 
   public void addCacheListener(CacheListener cl) {
@@ -1599,6 +1618,7 @@ public abstract class AbstractRegion implements Region, RegionAttributes, Attrib
     this.earlyAck = attrs.getEarlyAck();
     this.gatewaySenderIds = attrs.getGatewaySenderIds();
     this.asyncEventQueueIds = attrs.getAsyncEventQueueIds();
+    initializeVisibleAsyncEventQueueIds(internalRegionArgs);
     setAllGatewaySenderIds();
     this.enableSubscriptionConflation = attrs.getEnableSubscriptionConflation();
     this.publisher = attrs.getPublisher();
@@ -1719,15 +1739,13 @@ public abstract class AbstractRegion implements Region, RegionAttributes, Attrib
    * Makes sure that the data was distributed to every required role. If it was not it either queues
    * the data for later delivery or it throws an exception.
    *
-   * @param data the data that needs to be reliably distributed
    * @param successfulRecipients the successful recipients
    * @throws RoleException if a required role was not sent the message and the LossAction is either
    *         NO_ACCESS or LIMITED_ACCESS.
    * @since GemFire 5.0
    *
    */
-  protected void handleReliableDistribution(ReliableDistributionData data,
-      Set successfulRecipients) {
+  protected void handleReliableDistribution(Set successfulRecipients) {
     // do nothing by default
   }
 

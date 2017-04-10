@@ -18,6 +18,7 @@ import static org.apache.geode.cache.lucene.test.LuceneTestUtilities.*;
 import static org.junit.Assert.*;
 
 import java.io.File;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.geode.cache.Region;
 import org.apache.geode.cache.RegionShortcut;
@@ -44,7 +45,8 @@ public class DumpDirectoryFilesIntegrationTest extends LuceneIntegrationTest {
 
   @Test
   public void shouldDumpReadableLuceneIndexFile() throws Exception {
-    luceneService.createIndex(INDEX_NAME, REGION_NAME, "title", "description");
+    luceneService.createIndexFactory().setFields("title", "description").create(INDEX_NAME,
+        REGION_NAME);
 
     Region region = createRegion(REGION_NAME, RegionShortcut.PARTITION);
     region.put(0, new TestObject("title 1", "hello world"));
@@ -55,7 +57,7 @@ public class DumpDirectoryFilesIntegrationTest extends LuceneIntegrationTest {
     InternalLuceneIndex index =
         (InternalLuceneIndex) luceneService.getIndex(INDEX_NAME, REGION_NAME);
 
-    index.waitUntilFlushed(60000);
+    luceneService.waitUntilFlushed(INDEX_NAME, REGION_NAME, 60000, TimeUnit.MILLISECONDS);
 
     index.dumpFiles(diskDirRule.get().getAbsolutePath());
 

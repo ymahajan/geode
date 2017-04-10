@@ -43,11 +43,7 @@ $(document).ready(function() {
   // Load Notification HTML  
   generateNotificationsPanel();
 
-  if (CONST_BACKEND_PRODUCT_SQLFIRE == productname.toLowerCase()) {
-    alterHtmlContainer(CONST_BACKEND_PRODUCT_SQLFIRE);
-  } else {
-    alterHtmlContainer(CONST_BACKEND_PRODUCT_GEMFIRE);
-  }
+  alterHtmlContainer(CONST_BACKEND_PRODUCT_GEMFIRE);
 
   createMemberTreeMap();
   
@@ -66,13 +62,8 @@ $(document).ready(function() {
  * is sqlfire or gemfire 
  */
 function alterHtmlContainer(prodname){
-  if(CONST_BACKEND_PRODUCT_SQLFIRE == prodname.toLowerCase()){
-    // Show HTML for following
-    $('#subTabQueryStatistics').show();
-  }else{
     // Hide HTML for following
     $('#subTabQueryStatistics').hide();
-  }  
 }
 
 //function used for applying filter of member names in data view screen
@@ -471,7 +462,7 @@ function createMemberTreeMap() {
             },
             onClick : function(node) {
               if (node.id != "root") {
-                location.href ='MemberDetails.html?member=' + node.id + "&memberName=" + node.name;
+                location.href ='memberDetails.html?member=' + node.id + "&memberName=" + node.name;
               }
             }
           },
@@ -700,7 +691,7 @@ jQuery("#memberList").jqGrid(
    },
    onSelectRow : function(rowid) {
      var member = rowid.split("&");
-     location.href = 'MemberDetails.html?member=' + member[0]
+     location.href = 'memberDetails.html?member=' + member[0]
      + '&memberName=' + member[1];
    },
    resizeStop : function(width, index) {

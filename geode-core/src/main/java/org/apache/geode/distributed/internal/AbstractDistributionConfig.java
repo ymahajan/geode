@@ -16,6 +16,20 @@ package org.apache.geode.distributed.internal;
 
 import static org.apache.geode.distributed.ConfigurationProperties.*;
 
+import org.apache.commons.lang.StringUtils;
+import org.apache.geode.InternalGemFireException;
+import org.apache.geode.InvalidValueException;
+import org.apache.geode.UnmodifiableException;
+import org.apache.geode.internal.AbstractConfig;
+import org.apache.geode.internal.ConfigSource;
+import org.apache.geode.internal.admin.remote.DistributionLocatorId;
+import org.apache.geode.internal.i18n.LocalizedStrings;
+import org.apache.geode.internal.logging.LogWriterImpl;
+import org.apache.geode.internal.logging.log4j.LogLevel;
+import org.apache.geode.internal.net.SocketCreator;
+import org.apache.geode.internal.security.SecurableCommunicationChannel;
+import org.apache.geode.memcached.GemFireMemcachedServer;
+
 import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -27,20 +41,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringTokenizer;
-
-import org.apache.commons.lang.StringUtils;
-
-import org.apache.geode.InternalGemFireException;
-import org.apache.geode.InvalidValueException;
-import org.apache.geode.UnmodifiableException;
-import org.apache.geode.internal.AbstractConfig;
-import org.apache.geode.internal.ConfigSource;
-import org.apache.geode.internal.admin.remote.DistributionLocatorId;
-import org.apache.geode.internal.i18n.LocalizedStrings;
-import org.apache.geode.internal.logging.LogWriterImpl;
-import org.apache.geode.internal.net.SocketCreator;
-import org.apache.geode.internal.security.SecurableCommunicationChannel;
-import org.apache.geode.memcached.GemFireMemcachedServer;
 
 /**
  * Provides an implementation of <code>DistributionConfig</code> that knows how to read the
@@ -572,7 +572,7 @@ public abstract class AbstractDistributionConfig extends AbstractConfig
     // accepts int
     if (attName.equalsIgnoreCase(LOG_LEVEL) || attName.equalsIgnoreCase(SECURITY_LOG_LEVEL)) {
       if (attValue instanceof String) {
-        attValue = LogWriterImpl.levelNameToCode((String) attValue);
+        attValue = LogLevel.getLogWriterLevel((String) attValue);
       }
     }
 
@@ -1084,7 +1084,7 @@ public abstract class AbstractDistributionConfig extends AbstractConfig
         LocalizedStrings.AbstractDistributionConfig_USE_SHARED_CONFIGURATION.toLocalizedString());
     m.put(LOAD_CLUSTER_CONFIGURATION_FROM_DIR,
         LocalizedStrings.AbstractDistributionConfig_LOAD_SHARED_CONFIGURATION_FROM_DIR
-            .toLocalizedString(SharedConfiguration.CLUSTER_CONFIG_ARTIFACTS_DIR_NAME));
+            .toLocalizedString(ClusterConfigurationService.CLUSTER_CONFIG_ARTIFACTS_DIR_NAME));
     m.put(CLUSTER_CONFIGURATION_DIR,
         LocalizedStrings.AbstractDistributionConfig_CLUSTER_CONFIGURATION_DIR.toLocalizedString());
     m.put(SSL_SERVER_ALIAS, LocalizedStrings.AbstractDistributionConfig_SERVER_SSL_ALIAS_0

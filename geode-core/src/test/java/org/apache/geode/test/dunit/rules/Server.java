@@ -16,12 +16,14 @@
 
 package org.apache.geode.test.dunit.rules;
 
-import org.apache.geode.test.dunit.VM;
+import org.apache.geode.cache.Cache;
+import org.apache.geode.cache.server.CacheServer;
 
-import java.io.File;
+public interface Server extends Member {
+  Cache getCache();
 
-public class Server extends Member {
-  public Server(VM vm, int port, File workingDir) {
-    super(vm, port, workingDir);
-  }
+  CacheServer getServer();
+
+  int getEmbeddedLocatorPort();
+
 }

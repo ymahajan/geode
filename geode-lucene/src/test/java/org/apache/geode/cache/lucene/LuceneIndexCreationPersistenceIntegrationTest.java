@@ -23,7 +23,7 @@ import java.io.File;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
-import com.jayway.awaitility.Awaitility;
+import org.awaitility.Awaitility;
 import junitparams.JUnitParamsRunner;
 import junitparams.Parameters;
 
@@ -31,7 +31,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
-
+import org.apache.geode.cache.PartitionAttributesFactory;
 import org.apache.geode.cache.Region;
 import org.apache.geode.cache.RegionShortcut;
 import org.apache.geode.cache.asyncqueue.AsyncEventQueue;
@@ -69,8 +69,50 @@ public class LuceneIndexCreationPersistenceIntegrationTest extends LuceneIntegra
   }
 
   @Test
+  public void shouldInheritRecoveryDelayFromUserRegion() {
+    createIndex(cache, "text");
+
+    PartitionAttributesFactory paf = new PartitionAttributesFactory();
+    paf.setRecoveryDelay(0);
+
+    cache.createRegionFactory(RegionShortcut.PARTITION).setPartitionAttributes(paf.create())
+        .create(REGION_NAME);
+    verifyInternalRegions(region -> {
+      assertEquals(0, region.getAttributes().getPartitionAttributes().getRecoveryDelay());
+    });
+  }
+
+  @Test
+  public void shouldInheritStartupRecoveryDelayFromUserRegion() {
+    createIndex(cache, "text");
+
+    PartitionAttributesFactory paf = new PartitionAttributesFactory();
+    paf.setStartupRecoveryDelay(1);
+
+    cache.createRegionFactory(RegionShortcut.PARTITION).setPartitionAttributes(paf.create())
+        .create(REGION_NAME);
+    verifyInternalRegions(region -> {
+      assertEquals(1, region.getAttributes().getPartitionAttributes().getStartupRecoveryDelay());
+    });
+  }
+
+  @Test
+  public void shouldNotUseDiskStoreWhenUserRegionIsNotPersistent() {
+    createIndex(cache, "text");
+    String diskStoreName = "diskStore";
+    cache.createDiskStoreFactory().setDiskDirs(new File[] {diskDirRule.get()})
+        .create(diskStoreName);
+    cache.createRegionFactory(RegionShortcut.PARTITION_OVERFLOW).setDiskStoreName(diskStoreName)
+        .create(REGION_NAME);
+    verifyInternalRegions(region -> {
+      assertTrue(region.getAttributes().getDiskStoreName() == null);
+      assertTrue(region.getAttributes().getEvictionAttributes().getAction().isNone());
+    });
+  }
+
+  @Test
   @Parameters({"true", "false"})
-  public void shouldUseDiskSynchronousWhenUserRegionHasDiskSynchronous(boolean synchronous) {
+  public void aeqShouldAlwaysBeDiskSynchronousWhenUserRegionIsEither(boolean synchronous) {
     createIndex(cache, "text");
     cache.createRegionFactory(RegionShortcut.PARTITION_PERSISTENT).setDiskSynchronous(synchronous)
         .create(REGION_NAME);
@@ -80,7 +122,7 @@ public class LuceneIndexCreationPersistenceIntegrationTest extends LuceneIntegra
       assertTrue(region.isDiskSynchronous());
     });
     AsyncEventQueue queue = getIndexQueue(cache);
-    assertEquals(synchronous, queue.isDiskSynchronous());
+    assertTrue(queue.isDiskSynchronous());
     assertEquals(true, queue.isPersistent());
   }
 
@@ -122,8 +164,10 @@ public class LuceneIndexCreationPersistenceIntegrationTest extends LuceneIntegra
   @Test
   @Parameters(method = "getRegionShortcuts")
   public void shouldHandleMultipleIndexes(RegionShortcut shortcut) throws Exception {
-    LuceneServiceProvider.get(this.cache).createIndex(INDEX_NAME + "_1", REGION_NAME, "field1");
-    LuceneServiceProvider.get(this.cache).createIndex(INDEX_NAME + "_2", REGION_NAME, "field2");
+    LuceneServiceProvider.get(this.cache).createIndexFactory().setFields("field1")
+        .create(INDEX_NAME + "_1", REGION_NAME);
+    LuceneServiceProvider.get(this.cache).createIndexFactory().setFields("field2")
+        .create(INDEX_NAME + "_2", REGION_NAME);
     Region region = cache.createRegionFactory(shortcut).create(REGION_NAME);
     region.put("key1", new TestObject());
     verifyQueryResultSize(INDEX_NAME + "_1", REGION_NAME, "field1:world", DEFAULT_FIELD, 1);
@@ -133,7 +177,8 @@ public class LuceneIndexCreationPersistenceIntegrationTest extends LuceneIntegra
   @Test
   @Parameters(method = "getRegionShortcuts")
   public void shouldCreateInternalRegionsForIndex(RegionShortcut shortcut) {
-    luceneService.createIndex(INDEX_NAME, REGION_NAME, "field1", "field2");
+    luceneService.createIndexFactory().setFields("field1", "field2").create(INDEX_NAME,
+        REGION_NAME);
 
     // Create partitioned region
     createRegion(REGION_NAME, shortcut);

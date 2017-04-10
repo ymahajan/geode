@@ -14,6 +14,7 @@
  */
 package org.apache.geode.internal.cache.wan.misc;
 
+import org.apache.geode.test.dunit.IgnoredException;
 import org.junit.Ignore;
 import org.junit.experimental.categories.Category;
 import org.junit.Test;
@@ -25,7 +26,9 @@ import org.apache.geode.test.dunit.internal.JUnit4DistributedTestCase;
 import org.apache.geode.test.junit.categories.DistributedTest;
 import org.apache.geode.test.junit.categories.FlakyTest;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -580,5 +583,86 @@ public class WanAutoDiscoveryDUnitTest extends WANTestBase {
           .append(Thread.activeCount()).append(". Check log file for a thread dump.");
       fail(builder.toString());
     }
+  }
+
+  @Test
+  public void testNoRemoteLocators() {
+    IgnoredException ie = IgnoredException
+        .addIgnoredException("could not get remote locator information for remote site");
+    try {
+      testRemoteLocators(null, false, 0);
+    } finally {
+      ie.remove();
+    }
+  }
+
+  @Test
+  public void testValidHostRemoteLocators() {
+    Set<String> remoteLocators = new HashSet();
+    remoteLocators.add("localhost[12345]");
+    testRemoteLocators(remoteLocators, true, 1);
+  }
+
+  @Test
+  public void testInvalidHostRemoteLocators() {
+    IgnoredException ie = IgnoredException
+        .addIgnoredException("could not get remote locator information for remote site");
+    try {
+      Set<String> remoteLocators = new HashSet();
+      addUnknownHost(remoteLocators);
+      testRemoteLocators(remoteLocators, false, 0);
+    } finally {
+      ie.remove();
+    }
+  }
+
+  @Test
+  public void testValidAndInvalidHostRemoteLocators() {
+    Set<String> remoteLocators = new HashSet();
+    remoteLocators.add("localhost[12345]");
+    addUnknownHost(remoteLocators);
+    testRemoteLocators(remoteLocators, true, 1);
+  }
+
+  private void addUnknownHost(Set<String> remoteLocators) {
+    String unknownHostName = "unknown";
+    boolean unknownHostFound = false;
+    int numTries = 10;
+    for (int i = 0; i < numTries; i++) {
+      try {
+        InetAddress.getByName(unknownHostName);
+      } catch (UnknownHostException e) {
+        unknownHostFound = true;
+        break;
+      }
+      unknownHostName = "_" + unknownHostName + "_";
+    }
+    assertTrue("An unknown host name could not be found in " + numTries + " tries",
+        unknownHostFound);
+
+    remoteLocators.add(unknownHostName + "[12345]");
+  }
+
+  private void testRemoteLocators(Set<String> remoteLocators, boolean poolShouldExist,
+      int expectedPoolLocatorsSize) {
+    // Start locator
+    Integer lnLocPort = (Integer) vm0.invoke(() -> WANTestBase.createFirstLocatorWithDSId(1));
+
+    // Add remote locators
+    int remoteDsId = 2;
+    vm0.invoke(() -> WANTestBase.putRemoteSiteLocators(remoteDsId, remoteLocators));
+
+    // Create cache
+    vm2.invoke(() -> WANTestBase.createCache(lnLocPort));
+
+    // Create sender
+    vm2.invoke(() -> WANTestBase.createSender("ln", remoteDsId, false, 100, 10, false, false, null,
+        false));
+
+    // Verify sender is running
+    vm2.invoke(() -> WANTestBase.verifySenderRunningState("ln"));
+
+    // Verify pool exists or not
+    vm2.invoke(() -> WANTestBase.verifyPool("ln", poolShouldExist, expectedPoolLocatorsSize));
   }
 }

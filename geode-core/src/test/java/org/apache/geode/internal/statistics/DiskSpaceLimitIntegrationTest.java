@@ -14,8 +14,10 @@
  */
 package org.apache.geode.internal.statistics;
 
+import static java.lang.String.valueOf;
 import static java.util.concurrent.TimeUnit.MINUTES;
-import static org.apache.commons.io.FileUtils.moveFileToDirectory;
+import static org.apache.commons.io.FileUtils.*;
+import static org.apache.commons.lang.StringUtils.leftPad;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -26,6 +28,7 @@ import org.apache.geode.StatisticsType;
 import org.apache.geode.internal.NanoTimer;
 import org.apache.geode.internal.io.MainWithChildrenRollingFileHandler;
 import org.apache.geode.internal.io.RollingFileHandler;
+import org.apache.geode.internal.util.ArrayUtils;
 import org.apache.geode.test.junit.categories.IntegrationTest;
 import org.junit.After;
 import org.junit.Before;
@@ -37,9 +40,13 @@ import org.junit.rules.TestName;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeoutException;
 
 @Category(IntegrationTest.class)
+@SuppressWarnings("unused")
 public class DiskSpaceLimitIntegrationTest {
 
   private static final long FILE_SIZE_LIMIT = 256;
@@ -48,6 +55,8 @@ public class DiskSpaceLimitIntegrationTest {
   private File dir;
   private File dirOfDeletedFiles;
 
+  private String name;
+
   private String archiveFileName;
 
   private LocalStatisticsFactory factory;
@@ -55,8 +64,12 @@ public class DiskSpaceLimitIntegrationTest {
   private StatisticsType statisticsType;
   private Statistics statistics;
 
+  private RollingFileHandler testRollingFileHandler;
+
   private SampleCollector sampleCollector;
   private StatArchiveHandlerConfig config;
+
+  private long initTimeStamp;
 
   private NanoTimer timer = new NanoTimer();
   private long nanosTimeStamp;
@@ -71,8 +84,9 @@ public class DiskSpaceLimitIntegrationTest {
     this.dir = this.temporaryFolder.getRoot();
     this.dirOfDeletedFiles = this.temporaryFolder.newFolder("deleted");
 
-    this.archiveFileName =
-        new File(this.dir, this.testName.getMethodName() + ".gfs").getAbsolutePath();
+    this.name = this.testName.getMethodName();
+
+    this.archiveFileName = new File(this.dir, this.name + ".gfs").getAbsolutePath();
 
     this.factory = new LocalStatisticsFactory(null);
     this.statisticDescriptors = new StatisticDescriptor[] {
@@ -93,13 +107,19 @@ public class DiskSpaceLimitIntegrationTest {
         .thenReturn(this.temporaryFolder.getRoot().getAbsolutePath());
     when(this.config.getProductDescription()).thenReturn(this.testName.getMethodName());
 
-    RollingFileHandler rollingFileHandler = new TestableRollingFileHandler();
+    this.testRollingFileHandler = new TestableRollingFileHandler();
 
     this.sampleCollector = new SampleCollector(sampler);
-    this.sampleCollector.initialize(this.config, NanoTimer.getTime(), rollingFileHandler);
 
+    this.initTimeStamp = NanoTimer.getTime();
     this.timer.reset();
     this.nanosTimeStamp = this.timer.getLastResetTime() - getNanoRate();
+
+    preConditions();
+  }
+
+  private void preConditions() throws Exception {
+    validateNumberFiles(0);
   }
 
   @After
@@ -109,6 +129,8 @@ public class DiskSpaceLimitIntegrationTest {
 
   @Test
   public void zeroKeepsAllFiles() throws Exception {
+    this.sampleCollector.initialize(this.config, this.initTimeStamp, this.testRollingFileHandler);
+
     when(this.config.getArchiveDiskSpaceLimit()).thenReturn(0L);
     sampleUntilFileExists(archiveFile(1));
     sampleUntilFileExists(archiveFile(2));
@@ -118,6 +140,8 @@ public class DiskSpaceLimitIntegrationTest {
 
   @Test
   public void aboveZeroDeletesOldestFile() throws Exception {
+    this.sampleCollector.initialize(this.config, this.initTimeStamp, this.testRollingFileHandler);
+
     when(this.config.getArchiveDiskSpaceLimit()).thenReturn(DISK_SPACE_LIMIT);
     sampleUntilFileExists(archiveFile(1));
     sampleUntilFileExists(archiveFile(2));
@@ -136,6 +160,119 @@ public class DiskSpaceLimitIntegrationTest {
 
     assertThat(archiveFile(childFile)).exists();
     assertThat(everExisted(archiveFile(1))).isTrue();
+  }
+
+  @Test
+  public void aboveZeroDeletesPreviousFiles() throws Exception {
+    int oldMainId = 1;
+    int newMainId = 2;
+
+    int numberOfPreviousFiles = 100;
+    int numberOfLines = 100;
+    createPreviousFiles(oldMainId, numberOfPreviousFiles, numberOfLines);
+
+    validateNumberFiles(numberOfPreviousFiles);
+
+    for (int childId = 1; childId <= numberOfPreviousFiles; childId++) {
+      assertThat(archiveFile(oldMainId, childId)).exists();
+    }
+
+    // current archive file does not exist yet
+    assertThat(archiveFile()).doesNotExist();
+
+    // rolling files for mainId 2 do not exist yet
+    assertThat(markerFile(newMainId)).doesNotExist();
+    assertThat(archiveFile(newMainId, 1)).doesNotExist();
+
+    when(this.config.getArchiveDiskSpaceLimit())
+        .thenReturn(sizeOfDirectory(this.dir) / numberOfPreviousFiles);
+
+    this.sampleCollector.initialize(this.config, this.initTimeStamp, this.testRollingFileHandler);
+
+    assertThat(archiveFile()).exists().hasParent(this.dir);
+    assertThat(markerFile(newMainId)).exists().hasParent(this.dir).hasBinaryContent(new byte[0]);
+
+    assertThat(archiveFile(newMainId, 1)).doesNotExist();
+
+    sampleNumberOfTimes(1);
+
+    sampleUntilFileExists(archiveFile(newMainId, 1));
+    assertThat(archiveFile(newMainId, 1)).exists();
+
+    validateNumberFiles(2);
+
+    for (int childId = 1; childId <= numberOfPreviousFiles; childId++) {
+      assertThat(archiveFile(oldMainId, childId)).doesNotExist();
+    }
+  }
+
+  @Test
+  public void aboveZeroDeletesPreviousFiles_nameWithHyphen() throws Exception {
+    this.name = "psin8p724_cache1-statistics";
+    this.archiveFileName = new File(this.dir, this.name + ".gfs").getAbsolutePath();
+    when(this.config.getArchiveFileName()).thenReturn(new File(this.archiveFileName));
+
+    int oldMainId = 1;
+    int newMainId = 2;
+
+    int numberOfPreviousFiles = 100;
+    int numberOfLines = 100;
+    createPreviousFiles(oldMainId, numberOfPreviousFiles, numberOfLines);
+
+    validateNumberFiles(numberOfPreviousFiles);
+
+    for (int childId = 1; childId <= numberOfPreviousFiles; childId++) {
+      assertThat(archiveFile(oldMainId, childId)).exists();
+    }
+
+    // current archive file does not exist yet
+    assertThat(archiveFile()).doesNotExist();
+
+    // rolling files for mainId 2 do not exist yet
+    assertThat(markerFile(newMainId)).doesNotExist();
+    assertThat(archiveFile(newMainId, 1)).doesNotExist();
+
+    when(this.config.getArchiveDiskSpaceLimit())
+        .thenReturn(sizeOfDirectory(this.dir) / numberOfPreviousFiles);
+
+    this.sampleCollector.initialize(this.config, this.initTimeStamp, this.testRollingFileHandler);
+
+    assertThat(archiveFile()).exists().hasParent(this.dir);
+    assertThat(markerFile(newMainId)).exists().hasParent(this.dir).hasBinaryContent(new byte[0]);
+
+    assertThat(archiveFile(newMainId, 1)).doesNotExist();
+
+    sampleNumberOfTimes(1);
+
+    sampleUntilFileExists(archiveFile(newMainId, 1));
+    assertThat(archiveFile(newMainId, 1)).exists();
+
+    // this might be a brittle assertion... ok to delete if following for-block-assertion passes
+    validateNumberFiles(2);
+
+    for (int childId = 1; childId <= numberOfPreviousFiles; childId++) {
+      assertThat(archiveFile(oldMainId, childId)).doesNotExist();
+    }
+  }
+
+  /**
+   * Validates number of files under this.dir while ignoring this.dirOfDeletedFiles.
+   */
+  private void validateNumberFiles(final int expected) {
+    assertThat(numberOfFiles(this.dir)).as("Unexpected files: " + listFiles(this.dir))
+        .isEqualTo(expected);
+  }
+
+  private void sampleNumberOfTimes(final int value) throws InterruptedException {
+    long minutes = 1;
+    long timeout = System.nanoTime() + MINUTES.toNanos(minutes);
+    int count = 0;
+    do {
+      sample(advanceNanosTimeStamp());
+      count++;
+      Thread.sleep(10);
+    } while (count < value && System.nanoTime() < timeout);
+    System.out.println("Sampled " + count + " times.");
   }
 
   private void sampleUntilFileExists(final File file)
@@ -203,9 +340,104 @@ public class DiskSpaceLimitIntegrationTest {
     return 1000; // 1 second
   }
 
-  private File archiveFile(final int child) {
-    return new File(this.dir,
-        this.testName.getMethodName() + "-01-" + String.format("%02d", child) + ".gfs");
+  private File archiveFile() {
+    return archiveFile(archiveName());
+  }
+
+  private String archiveName() {
+    return this.name;
+  }
+
+  private File archiveFile(final String name) {
+    return new File(this.dir, name + ".gfs");
+  }
+
+  private File archiveFile(final int childId) {
+    return archiveFile(1, childId);
+  }
+
+  private File archiveFile(final int mainId, final int childId) {
+    return archiveFile(archiveName(), mainId, childId);
+  }
+
+  private File archiveFile(final String name, final int mainId, final int childId) {
+    return new File(this.dir, archiveName(name, mainId, childId) + ".gfs");
+  }
+
+  private String archiveName(final int mainId, final int childId) {
+    return archiveName(archiveName(), mainId, childId);
+  }
+
+  private String archiveName(final String name, final int mainId, final int childId) {
+    return name + "-" + formatId(mainId) + "-" + formatId(childId);
+  }
+
+  private File markerFile(final int mainId) {
+    return markerFile(archiveName(), mainId);
+  }
+
+  private File markerFile(final String name, final int mainId) {
+    return new File(this.dir, markerName(name, mainId));
+  }
+
+  private String markerName(final int mainId) {
+    return markerName(archiveName(), mainId);
+  }
+
+  private String markerName(final String name, final int mainId) {
+    return archiveName(name, mainId, 0) + ".marker";
+  }
+
+  private String formatId(final int id) {
+    return String.format("%02d", id);
+  }
+
+  private List<File> listFiles(final File dir) {
+    List<File> files = ArrayUtils.asList(dir.listFiles());
+    files.remove(this.dirOfDeletedFiles);
+    return files;
+  }
+
+  private int numberOfFiles(final File dir) {
+    return listFiles(dir).size();
+  }
+
+  private void createPreviousFiles(final int mainId, final int fileCount, final int lineCount)
+      throws IOException {
+    createPreviousFiles(this.name, mainId, fileCount, lineCount);
+  }
+
+  private void createPreviousFiles(final String name, final int mainId, final int fileCount,
+      final int lineCount) throws IOException {
+    int childId = 1;
+    List<String> lines = lines(lineCount);
+    for (int i = 0; i < fileCount; i++) {
+      File file = createFile(name, mainId, childId);
+      writeFile(file, lines);
+      childId++;
+    }
+  }
+
+  private File createFile(final String name, final int mainId, final int childId) {
+    File file = new File(this.dir, name + "-" + leftPad(valueOf(mainId), 2, "0") + "-"
+        + leftPad(valueOf(childId), 2, "0") + ".gfs");
+    return file;
+  }
+
+  private void writeFile(final File file, final List<String> lines) throws IOException {
+    PrintWriter writer = new PrintWriter(file, "UTF-8");
+    for (String line : lines) {
+      writer.println(line);
+    }
+    writer.close();
+  }
+
+  private List<String> lines(final int lineCount) {
+    List<String> lines = new ArrayList<>();
+    for (int i = 0; i < lineCount; i++) {
+      lines.add(this.testName.getMethodName());
+    }
+    return lines;
   }
 
   /**
@@ -222,5 +454,4 @@ public class DiskSpaceLimitIntegrationTest {
       }
     }
   }
-
 }

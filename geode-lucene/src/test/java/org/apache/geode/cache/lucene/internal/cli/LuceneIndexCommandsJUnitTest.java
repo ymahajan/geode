@@ -27,12 +27,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import junitparams.JUnitParamsRunner;
+import junitparams.Parameters;
+import org.apache.geode.management.internal.cli.i18n.CliStrings;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.core.KeywordAnalyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 
 import org.apache.geode.cache.Cache;
@@ -41,6 +45,7 @@ import org.apache.geode.cache.execute.ResultCollector;
 import org.apache.geode.cache.lucene.internal.LuceneIndexStats;
 import org.apache.geode.cache.lucene.internal.cli.functions.LuceneCreateIndexFunction;
 import org.apache.geode.cache.lucene.internal.cli.functions.LuceneDescribeIndexFunction;
+import org.apache.geode.cache.lucene.internal.cli.functions.LuceneDestroyIndexFunction;
 import org.apache.geode.cache.lucene.internal.cli.functions.LuceneListIndexFunction;
 import org.apache.geode.distributed.DistributedMember;
 import org.apache.geode.internal.cache.execute.AbstractExecution;
@@ -48,7 +53,6 @@ import org.apache.geode.internal.util.CollectionUtils;
 import org.apache.geode.management.cli.Result.Status;
 import org.apache.geode.management.internal.cli.functions.CliFunctionResult;
 import org.apache.geode.management.internal.cli.result.CommandResult;
-import org.apache.geode.management.internal.cli.result.CommandResultException;
 import org.apache.geode.management.internal.cli.result.ResultBuilder;
 import org.apache.geode.management.internal.cli.result.TabularResultData;
 import org.apache.geode.management.internal.cli.shell.Gfsh;
@@ -70,12 +74,14 @@ import org.apache.geode.test.junit.categories.UnitTest;
  * @since GemFire 7.0
  */
 @Category(UnitTest.class)
+@RunWith(JUnitParamsRunner.class)
 public class LuceneIndexCommandsJUnitTest {
 
   @Test
   public void testListIndexWithoutStats() {
 
     final Cache mockCache = mock(Cache.class, "Cache");
+    final String serverName = "mockServer";
     final AbstractExecution mockFunctionExecutor =
         mock(AbstractExecution.class, "Function Executor");
     final ResultCollector mockResultCollector = mock(ResultCollector.class, "ResultCollector");
@@ -85,12 +91,12 @@ public class LuceneIndexCommandsJUnitTest {
     fieldAnalyzers.put("field1", new StandardAnalyzer());
     fieldAnalyzers.put("field2", new KeywordAnalyzer());
     fieldAnalyzers.put("field3", null);
-    final LuceneIndexDetails indexDetails1 =
-        createIndexDetails("memberFive", "/Employees", searchableFields, fieldAnalyzers, true);
-    final LuceneIndexDetails indexDetails2 =
-        createIndexDetails("memberSix", "/Employees", searchableFields, fieldAnalyzers, false);
-    final LuceneIndexDetails indexDetails3 =
-        createIndexDetails("memberTen", "/Employees", searchableFields, fieldAnalyzers, true);
+    final LuceneIndexDetails indexDetails1 = createIndexDetails("memberFive", "/Employees",
+        searchableFields, fieldAnalyzers, true, serverName);
+    final LuceneIndexDetails indexDetails2 = createIndexDetails("memberSix", "/Employees",
+        searchableFields, fieldAnalyzers, false, serverName);
+    final LuceneIndexDetails indexDetails3 = createIndexDetails("memberTen", "/Employees",
+        searchableFields, fieldAnalyzers, true, serverName);
 
     final List<Set<LuceneIndexDetails>> results = new ArrayList<>();
 
@@ -124,6 +130,7 @@ public class LuceneIndexCommandsJUnitTest {
   public void testListIndexWithStats() {
 
     final Cache mockCache = mock(Cache.class, "Cache");
+    final String serverName = "mockServer";
     final AbstractExecution mockFunctionExecutor =
         mock(AbstractExecution.class, "Function Executor");
     final ResultCollector mockResultCollector = mock(ResultCollector.class, "ResultCollector");
@@ -136,11 +143,11 @@ public class LuceneIndexCommandsJUnitTest {
     fieldAnalyzers.put("field2", new KeywordAnalyzer());
     fieldAnalyzers.put("field3", null);
     final LuceneIndexDetails indexDetails1 = createIndexDetails("memberFive", "/Employees",
-        searchableFields, fieldAnalyzers, mockIndexStats1, true);
+        searchableFields, fieldAnalyzers, mockIndexStats1, true, serverName);
     final LuceneIndexDetails indexDetails2 = createIndexDetails("memberSix", "/Employees",
-        searchableFields, fieldAnalyzers, mockIndexStats2, true);
+        searchableFields, fieldAnalyzers, mockIndexStats2, true, serverName);
     final LuceneIndexDetails indexDetails3 = createIndexDetails("memberTen", "/Employees",
-        searchableFields, fieldAnalyzers, mockIndexStats3, true);
+        searchableFields, fieldAnalyzers, mockIndexStats3, true, serverName);
 
     final List<Set<LuceneIndexDetails>> results = new ArrayList<>();
 
@@ -182,8 +189,8 @@ public class LuceneIndexCommandsJUnitTest {
     cliFunctionResults.add(new CliFunctionResult("member2", false, "Index creation failed"));
     cliFunctionResults.add(new CliFunctionResult("member3", true, "Index Created"));
 
-    doReturn(mockResultCollector).when(commands).executeFunctionOnGroups(
-        isA(LuceneCreateIndexFunction.class), any(), any(LuceneIndexInfo.class));
+    doReturn(mockResultCollector).when(commands).executeFunctionOnAllMembers(
+        isA(LuceneCreateIndexFunction.class), any(LuceneIndexInfo.class));
     doReturn(cliFunctionResults).when(mockResultCollector).getResult();
 
     String indexName = "index";
@@ -193,7 +200,7 @@ public class LuceneIndexCommandsJUnitTest {
         KeywordAnalyzer.class.getCanonicalName(), StandardAnalyzer.class.getCanonicalName()};
 
     CommandResult result = (CommandResult) commands.createIndex(indexName, regionPath,
-        searchableFields, fieldAnalyzers, null);
+        searchableFields, fieldAnalyzers);
     assertEquals(Status.OK, result.getStatus());
     TabularResultData data = (TabularResultData) result.getResultData();
     assertEquals(Arrays.asList("member1", "member2", "member3"), data.retrieveAllValues("Member"));
@@ -206,6 +213,7 @@ public class LuceneIndexCommandsJUnitTest {
   public void testDescribeIndex() throws Exception {
 
     final Cache mockCache = mock(Cache.class, "Cache");
+    final String serverName = "mockServer";
     final ResultCollector mockResultCollector = mock(ResultCollector.class, "ResultCollector");
     final LuceneIndexCommands commands = spy(createIndexCommands(mockCache, null));
 
@@ -217,10 +225,10 @@ public class LuceneIndexCommandsJUnitTest {
     final LuceneIndexStats mockIndexStats = getMockIndexStats(1, 10, 5, 1);
     final List<LuceneIndexDetails> indexDetails = new ArrayList<>();
     indexDetails.add(createIndexDetails("memberFive", "/Employees", searchableFields,
-        fieldAnalyzers, mockIndexStats, true));
+        fieldAnalyzers, mockIndexStats, true, serverName));
 
-    doReturn(mockResultCollector).when(commands).executeFunctionOnGroups(
-        isA(LuceneDescribeIndexFunction.class), any(), any(LuceneIndexInfo.class));
+    doReturn(mockResultCollector).when(commands).executeFunctionOnRegion(
+        isA(LuceneDescribeIndexFunction.class), any(LuceneIndexInfo.class), eq(true));
     doReturn(indexDetails).when(mockResultCollector).getResult();
 
     CommandResult result = (CommandResult) commands.describeIndex("memberFive", "/Employees");
@@ -399,6 +407,175 @@ public class LuceneIndexCommandsJUnitTest {
     assertEquals(queryResults.size(), data.retrieveAllValues("key").size());
   }
 
+  @Test
+  @Parameters({"true", "false"})
+  public void testDestroySingleIndexNoRegionMembers(boolean expectedToSucceed) throws Exception {
+    LuceneIndexCommands commands = createTestLuceneIndexCommandsForDestroyIndex();
+    String indexName = "index";
+    String regionPath = "regionPath";
+
+    final ResultCollector mockResultCollector = mock(ResultCollector.class);
+    final List<CliFunctionResult> cliFunctionResults = new ArrayList<>();
+    String expectedStatus = null;
+    if (expectedToSucceed) {
+      expectedStatus = CliStrings.format(
+          LuceneCliStrings.LUCENE_DESTROY_INDEX__MSG__SUCCESSFULLY_DESTROYED_INDEX_0_FROM_REGION_1,
+          new Object[] {indexName, regionPath});
+      cliFunctionResults.add(new CliFunctionResult("member0"));
+    } else {
+      Exception e = new IllegalStateException("failed");
+      expectedStatus = e.getMessage();
+      cliFunctionResults.add(new CliFunctionResult("member0", e, e.getMessage()));
+    }
+
+    doReturn(mockResultCollector).when(commands).executeFunction(
+        isA(LuceneDestroyIndexFunction.class), any(LuceneDestroyIndexInfo.class), any());
+    doReturn(cliFunctionResults).when(mockResultCollector).getResult();
+
+    doReturn(Collections.emptySet()).when(commands).getNormalMembers(any());
+    doReturn(Collections.emptySet()).when(commands).getRegionMembers(any(), any());
+
+    CommandResult result = (CommandResult) commands.destroyIndex(indexName, regionPath);
+    verifyDestroyIndexCommandResult(result, cliFunctionResults, expectedStatus);
+  }
+
+  @Test
+  @Parameters({"true", "false"})
+  public void testDestroySingleIndexWithRegionMembers(boolean expectedToSucceed) throws Exception {
+    LuceneIndexCommands commands = createTestLuceneIndexCommandsForDestroyIndex();
+    String indexName = "index";
+    String regionPath = "regionPath";
+
+    Set<DistributedMember> members = new HashSet<>();
+    DistributedMember mockMember = mock(DistributedMember.class);
+    when(mockMember.getId()).thenReturn("member0");
+    members.add(mockMember);
+
+    final ResultCollector mockResultCollector = mock(ResultCollector.class);
+    final List<CliFunctionResult> cliFunctionResults = new ArrayList<>();
+    String expectedStatus = null;
+    if (expectedToSucceed) {
+      expectedStatus = CliStrings.format(
+          LuceneCliStrings.LUCENE_DESTROY_INDEX__MSG__SUCCESSFULLY_DESTROYED_INDEX_0_FROM_REGION_1,
+          new Object[] {indexName, regionPath});
+      cliFunctionResults.add(new CliFunctionResult(mockMember.getId()));
+    } else {
+      Exception e = new IllegalStateException("failed");
+      expectedStatus = e.getMessage();
+      cliFunctionResults.add(new CliFunctionResult("member0", e, e.getMessage()));
+    }
+
+    doReturn(mockResultCollector).when(commands).executeFunction(
+        isA(LuceneDestroyIndexFunction.class), any(LuceneDestroyIndexInfo.class), any());
+    doReturn(cliFunctionResults).when(mockResultCollector).getResult();
+
+    doReturn(members).when(commands).getNormalMembers(any());
+    doReturn(members).when(commands).getRegionMembers(any(), any());
+
+    CommandResult result = (CommandResult) commands.destroyIndex(indexName, regionPath);
+    verifyDestroyIndexCommandResult(result, cliFunctionResults, expectedStatus);
+  }
+
+  @Test
+  @Parameters({"true", "false"})
+  public void testDestroyAllIndexesNoRegionMembers(boolean expectedToSucceed) throws Exception {
+    LuceneIndexCommands commands = createTestLuceneIndexCommandsForDestroyIndex();
+    String indexName = null;
+    String regionPath = "regionPath";
+
+    final ResultCollector mockResultCollector = mock(ResultCollector.class);
+    final List<CliFunctionResult> cliFunctionResults = new ArrayList<>();
+    String expectedStatus = null;
+    if (expectedToSucceed) {
+      expectedStatus = CliStrings.format(
+          LuceneCliStrings.LUCENE_DESTROY_INDEX__MSG__SUCCESSFULLY_DESTROYED_INDEXES_FROM_REGION_0,
+          new Object[] {regionPath});
+      cliFunctionResults.add(new CliFunctionResult("member0"));
+    } else {
+      Exception e = new IllegalStateException("failed");
+      expectedStatus = e.getMessage();
+      cliFunctionResults.add(new CliFunctionResult("member0", e, e.getMessage()));
+    }
+
+    doReturn(mockResultCollector).when(commands).executeFunction(
+        isA(LuceneDestroyIndexFunction.class), any(LuceneDestroyIndexInfo.class), any());
+    doReturn(cliFunctionResults).when(mockResultCollector).getResult();
+
+    doReturn(Collections.emptySet()).when(commands).getNormalMembers(any());
+    doReturn(Collections.emptySet()).when(commands).getRegionMembers(any(), any());
+
+    CommandResult result = (CommandResult) commands.destroyIndex(indexName, regionPath);
+    verifyDestroyIndexCommandResult(result, cliFunctionResults, expectedStatus);
+  }
+
+  @Test
+  @Parameters({"true", "false"})
+  public void testDestroyAllIndexesWithRegionMembers(boolean expectedToSucceed) throws Exception {
+    LuceneIndexCommands commands = createTestLuceneIndexCommandsForDestroyIndex();
+    String indexName = null;
+    String regionPath = "regionPath";
+
+    Set<DistributedMember> members = new HashSet<>();
+    DistributedMember mockMember = mock(DistributedMember.class);
+    when(mockMember.getId()).thenReturn("member0");
+    members.add(mockMember);
+
+    final ResultCollector mockResultCollector = mock(ResultCollector.class);
+    final List<CliFunctionResult> cliFunctionResults = new ArrayList<>();
+    String expectedStatus = null;
+    if (expectedToSucceed) {
+      expectedStatus = CliStrings.format(
+          LuceneCliStrings.LUCENE_DESTROY_INDEX__MSG__SUCCESSFULLY_DESTROYED_INDEXES_FROM_REGION_0,
+          new Object[] {regionPath});
+      cliFunctionResults.add(new CliFunctionResult(mockMember.getId()));
+    } else {
+      Exception e = new IllegalStateException("failed");
+      expectedStatus = e.getMessage();
+      cliFunctionResults.add(new CliFunctionResult("member0", e, e.getMessage()));
+    }
+
+    doReturn(mockResultCollector).when(commands).executeFunction(
+        isA(LuceneDestroyIndexFunction.class), any(LuceneDestroyIndexInfo.class), any());
+    doReturn(cliFunctionResults).when(mockResultCollector).getResult();
+
+    doReturn(Collections.emptySet()).when(commands).getNormalMembers(any());
+    doReturn(Collections.emptySet()).when(commands).getRegionMembers(any(), any());
+
+    CommandResult result = (CommandResult) commands.destroyIndex(indexName, regionPath);
+    verifyDestroyIndexCommandResult(result, cliFunctionResults, expectedStatus);
+  }
+
+  private LuceneIndexCommands createTestLuceneIndexCommandsForDestroyIndex() {
+    final Cache mockCache = mock(Cache.class);
+    final ResultCollector mockResultCollector = mock(ResultCollector.class);
+    final LuceneIndexCommands commands = spy(createIndexCommands(mockCache, null));
+
+    final List<CliFunctionResult> cliFunctionResults = new ArrayList<>();
+    cliFunctionResults.add(new CliFunctionResult("member", true, "Index Destroyed"));
+
+    doReturn(mockResultCollector).when(commands).executeFunctionOnRegion(
+        isA(LuceneDestroyIndexFunction.class), any(LuceneIndexInfo.class), eq(false));
+    doReturn(cliFunctionResults).when(mockResultCollector).getResult();
+    return commands;
+  }
+
+  private void verifyDestroyIndexCommandResult(CommandResult result,
+      List<CliFunctionResult> cliFunctionResults, String expectedStatus) {
+    assertEquals(Status.OK, result.getStatus());
+    TabularResultData data = (TabularResultData) result.getResultData();
+    List<String> members = data.retrieveAllValues("Member");
+    assertEquals(cliFunctionResults.size(), members.size());
+    // Verify each member
+    for (int i = 0; i < members.size(); i++) {
+      assertEquals("member" + i, members.get(i));
+    }
+    // Verify each status
+    List<String> status = data.retrieveAllValues("Status");
+    for (int i = 0; i < status.size(); i++) {
+      assertEquals(expectedStatus, status.get(i));
+    }
+  }
+
   private String getPage(final LuceneSearchResults[] expectedResults, int[] indexList) {
     final TabularResultData data = ResultBuilder.createTabularResultData();
     for (int i : indexList) {
@@ -439,15 +616,16 @@ public class LuceneIndexCommandsJUnitTest {
 
   private LuceneIndexDetails createIndexDetails(final String indexName, final String regionPath,
       final String[] searchableFields, final Map<String, Analyzer> fieldAnalyzers,
-      LuceneIndexStats indexStats, boolean status) {
+      LuceneIndexStats indexStats, boolean status, final String serverName) {
     return new LuceneIndexDetails(indexName, regionPath, searchableFields, fieldAnalyzers,
-        indexStats, status);
+        indexStats, status, serverName);
   }
 
   private LuceneIndexDetails createIndexDetails(final String indexName, final String regionPath,
-      final String[] searchableFields, final Map<String, Analyzer> fieldAnalyzers, boolean status) {
+      final String[] searchableFields, final Map<String, Analyzer> fieldAnalyzers, boolean status,
+      final String serverName) {
     return new LuceneIndexDetails(indexName, regionPath, searchableFields, fieldAnalyzers, null,
-        status);
+        status, serverName);
   }
 
   private LuceneSearchResults createQueryResults(final String key, final String value,

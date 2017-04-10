@@ -17,23 +17,20 @@
 
 package org.apache.geode.tools.pulse.internal;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.geode.tools.pulse.internal.controllers.PulseController;
 import org.apache.geode.tools.pulse.internal.data.PulseConfig;
 import org.apache.geode.tools.pulse.internal.data.PulseConstants;
 import org.apache.geode.tools.pulse.internal.data.Repository;
 import org.apache.geode.tools.pulse.internal.log.PulseLogWriter;
-import org.apache.geode.tools.pulse.internal.util.StringUtils;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.context.support.WebApplicationContextUtils;
 
-import javax.servlet.ServletContextEvent;
-import javax.servlet.ServletContextListener;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -44,6 +41,8 @@ import java.util.Properties;
 import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.logging.Level;
+import javax.servlet.ServletContextEvent;
+import javax.servlet.ServletContextListener;
 
 /**
  * This class is used for checking the application running mode i.e. Embedded or not
@@ -114,12 +113,6 @@ public class PulseAppListener implements ServletContextListener {
       // in present deployment
       String pulseProduct =
           pulseProperties.getProperty(PulseConstants.APPLICATION_PROPERTY_PULSE_PRODUCTSUPPORT);
-      // default is gemfire
-
-      if ((pulseProduct != null)
-          && (pulseProduct.trim().equalsIgnoreCase(PulseConstants.PRODUCT_NAME_SQLFIRE))) {
-        PulseController.setPulseProductSupport(PulseConstants.PRODUCT_NAME_SQLFIRE);
-      }
     }
 
     pulseSecurityProperties = loadProperties(PulseConstants.PULSE_SECURITY_PROPERTIES_FILE);
@@ -147,13 +140,6 @@ public class PulseAppListener implements ServletContextListener {
       try {
         // Get host name of machine running pulse in embedded mode
         sysPulseHost = InetAddress.getLocalHost().getCanonicalHostName();
-      } catch (UnknownHostException e) {
-        if (LOGGER.fineEnabled()) {
-          LOGGER.fine(
-              resourceBundle.getString("LOG_MSG_JMX_CONNECTION_UNKNOWN_HOST") + e.getMessage());
-        }
-        // Set default host name
-        sysPulseHost = PulseConstants.GEMFIRE_DEFAULT_HOST;
       } catch (Exception e) {
         if (LOGGER.fineEnabled()) {
           LOGGER.fine(
@@ -162,15 +148,9 @@ public class PulseAppListener implements ServletContextListener {
         // Set default host name
         sysPulseHost = PulseConstants.GEMFIRE_DEFAULT_HOST;
       }
-      sysPulsePort = PulseConstants.GEMFIRE_DEFAULT_PORT;
-
-      boolean pulseEmbededSqlf =
-          Boolean.getBoolean(PulseConstants.SYSTEM_PROPERTY_PULSE_EMBEDDED_SQLF);
-      if (pulseEmbededSqlf) {
-        PulseController.setPulseProductSupport(PulseConstants.PRODUCT_NAME_SQLFIRE);
-        if (LOGGER.infoEnabled()) {
-          LOGGER.info(resourceBundle.getString("LOG_MSG_APP_RUNNING_EMBEDDED_SQLF_MODE"));
-        }
+      sysPulsePort = System.getProperty(PulseConstants.SYSTEM_PROPERTY_PULSE_PORT);
+      if (StringUtils.isBlank(sysPulsePort)) {
+        sysPulsePort = PulseConstants.GEMFIRE_DEFAULT_PORT;
       }
 
     } else {
@@ -462,50 +442,50 @@ public class PulseAppListener implements ServletContextListener {
     PulseConfig pulseConfig = Repository.get().getPulseConfig();
 
     // log file name
-    if (StringUtils.isNotNullNotEmptyNotWhiteSpace(
-        logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGFILENAME))) {
+    if (StringUtils
+        .isNotBlank(logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGFILENAME))) {
       pulseConfig.setLogFileName(
           logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGFILENAME));
     }
 
     // log file location
-    if (StringUtils.isNotNullNotEmptyNotWhiteSpace(
+    if (StringUtils.isNotBlank(
         logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGFILELOCATION))) {
       pulseConfig.setLogFileLocation(
           logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGFILELOCATION));
     }
 
     // log file size
-    if (StringUtils.isNotNullNotEmptyNotWhiteSpace(
-        logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGFILESIZE))) {
+    if (StringUtils
+        .isNotBlank(logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGFILESIZE))) {
       pulseConfig.setLogFileSize(Integer
           .parseInt(logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGFILESIZE)));
     }
 
     // log file count
-    if (StringUtils.isNotNullNotEmptyNotWhiteSpace(
-        logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGFILECOUNT))) {
+    if (StringUtils
+        .isNotBlank(logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGFILECOUNT))) {
       pulseConfig.setLogFileCount(Integer
           .parseInt(logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGFILECOUNT)));
     }
 
     // log message date pattern
-    if (StringUtils.isNotNullNotEmptyNotWhiteSpace(
+    if (StringUtils.isNotBlank(
         logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGDATEPATTERN))) {
       pulseConfig.setLogDatePattern(
           logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGDATEPATTERN));
     }
 
     // log level
-    if (StringUtils.isNotNullNotEmptyNotWhiteSpace(
-        logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGLEVEL))) {
+    if (StringUtils
+        .isNotBlank(logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGLEVEL))) {
       pulseConfig.setLogLevel(Level.parse(
           logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGLEVEL).toUpperCase()));
     }
 
     // log append
-    if (StringUtils.isNotNullNotEmptyNotWhiteSpace(
-        logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGAPPEND))) {
+    if (StringUtils
+        .isNotBlank(logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGAPPEND))) {
       pulseConfig.setLogAppend(Boolean
           .valueOf(logPropertiesHM.get(PulseConstants.APPLICATION_PROPERTY_PULSE_LOGAPPEND)));
     }

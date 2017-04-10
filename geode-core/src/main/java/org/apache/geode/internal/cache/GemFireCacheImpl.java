@@ -102,7 +102,7 @@ import org.apache.geode.distributed.internal.ReplyProcessor21;
 import org.apache.geode.distributed.internal.ResourceEvent;
 import org.apache.geode.distributed.internal.ResourceEventsListener;
 import org.apache.geode.distributed.internal.ServerLocation;
-import org.apache.geode.distributed.internal.SharedConfiguration;
+import org.apache.geode.distributed.internal.ClusterConfigurationService;
 import org.apache.geode.distributed.internal.locks.DLockService;
 import org.apache.geode.distributed.internal.membership.InternalDistributedMember;
 import org.apache.geode.i18n.LogWriterI18n;
@@ -783,6 +783,8 @@ public class GemFireCacheImpl
     return basicCreate(system, existingOk, cacheConfig, null, false, ASYNC_EVENT_LISTENERS, null);
   }
 
+
+
   private static GemFireCacheImpl basicCreate(DistributedSystem system, boolean existingOk,
       CacheConfig cacheConfig, PoolFactory pf, boolean isClient, boolean asyncEventListeners,
       TypeRegistry typeRegistry) throws CacheExistsException, TimeoutException,
@@ -875,8 +877,6 @@ public class GemFireCacheImpl
       this.rootRegions = new HashMap();
 
       this.cqService = CqServiceProvider.create(this);
-
-      this.rmqFactory = new ReliableMessageQueueFactoryImpl();
 
       // Create the CacheStatistics
       this.cachePerfStats = new CachePerfStats(system);
@@ -1033,7 +1033,7 @@ public class GemFireCacheImpl
       logger.info(response.describeConfig());
 
       Configuration clusterConfig =
-          response.getRequestedConfiguration().get(SharedConfiguration.CLUSTER_CONFIG);
+          response.getRequestedConfiguration().get(ClusterConfigurationService.CLUSTER_CONFIG);
       Properties clusterSecProperties =
           (clusterConfig == null) ? new Properties() : clusterConfig.getGemfireProperties();
 
@@ -1982,6 +1982,10 @@ public class GemFireCacheImpl
     close(false);
   }
 
+  public void close(String reason, boolean keepalive, boolean keepDS) {
+    close(reason, null, keepalive, keepDS);
+  }
+
   public void close(boolean keepalive) {
     close("Normal disconnect", null, keepalive, false);
   }
@@ -2321,17 +2325,6 @@ public class GemFireCacheImpl
           PoolManager.close(keepalive);
 
           if (isDebugEnabled) {
-            logger.debug("{}: closing reliable message queue...", this);
-          }
-          try {
-            getReliableMessageQueueFactory().close(true);
-          } catch (CancelException e) {
-            if (isDebugEnabled) {
-              logger.debug("Ignored cancellation while closing reliable message queue", e);
-            }
-          }
-
-          if (isDebugEnabled) {
             logger.debug("{}: notifying admins of close...", this);
           }
           try {
@@ -2444,7 +2437,7 @@ public class GemFireCacheImpl
         }
         ((DynamicRegionFactoryImpl) DynamicRegionFactory.get()).close();
         if (this.txMgr != null) {
-          this.txMgr.resume(tx);
+          this.txMgr.internalResume(tx);
         }
         TXCommitMessage.getTracker().clearForCacheClose();
       }
@@ -2500,6 +2493,9 @@ public class GemFireCacheImpl
   // see Cache.getReconnectedCache()
   public Cache getReconnectedCache() {
     GemFireCacheImpl c = GemFireCacheImpl.getInstance();
+    if (c == null) {
+      return null;
+    }
     if (c == this || !c.isInitialized()) {
       c = null;
     }
@@ -3890,6 +3886,10 @@ public class GemFireCacheImpl
     this.regionListeners.remove(l);
   }
 
+  public Set<RegionListener> getRegionListeners() {
+    return Collections.unmodifiableSet(this.regionListeners);
+  }
+
   @SuppressWarnings("unchecked")
   public <T extends CacheService> T getService(Class<T> clazz) {
     return (T) services.get(clazz);
@@ -3933,6 +3933,32 @@ public class GemFireCacheImpl
         ccpTimer.cancel(); // poison it, don't throw.
       }
       return ccpTimer;
+    }
+  }
+
+  /**
+   * For use by unit tests to inject a mocked ccpTimer
+   */
+  void setCCPTimer(SystemTimer ccpTimer) {
+    this.ccpTimer = ccpTimer;
+  }
+
+  static final int PURGE_INTERVAL = 1000;
+  private int cancelCount = 0;
+
+  /**
+   * Does a periodic purge of the CCPTimer to prevent a large number of cancelled tasks from
+   * building up in it. See GEODE-2485.
+   */
+  public void purgeCCPTimer() {
+    synchronized (ccpTimerMutex) {
+      if (ccpTimer != null) {
+        cancelCount++;
+        if (cancelCount == PURGE_INTERVAL) {
+          cancelCount = 0;
+          ccpTimer.timerPurge();
+        }
+      }
     }
   }
 
@@ -4135,6 +4161,7 @@ public class GemFireCacheImpl
       this.allAsyncEventQueues.remove(asyncQueue);
       this.allVisibleAsyncEventQueues.remove(asyncQueue);
     }
+    system.handleResourceEvent(ResourceEvent.ASYNCEVENTQUEUE_REMOVE, asyncQueue);
   }
 
   /* Cache API - get the conflict resolver for WAN */
@@ -4488,21 +4515,7 @@ public class GemFireCacheImpl
     PoolManagerImpl.readyForEvents(this.system, false);
   }
 
-  /**
-   * This cache's reliable message queue factory. Should always have an instance of it.
-   */
-  private final ReliableMessageQueueFactory rmqFactory;
-
   private List<File> backupFiles = Collections.emptyList();
-
-  /**
-   * Returns this cache's ReliableMessageQueueFactory.
-   *
-   * @since GemFire 5.0
-   */
-  public ReliableMessageQueueFactory getReliableMessageQueueFactory() {
-    return this.rmqFactory;
-  }
 
   public InternalResourceManager getResourceManager() {
     return getResourceManager(true);

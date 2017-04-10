@@ -764,7 +764,7 @@ public class LocalizedStrings {
           "{0} seconds have elapsed while waiting for reply from {1} on {2} whose current membership list is: [{3}]");
 
   public static final StringId DirectChannel_GEMFIRE_P2P_LISTENER_STARTED_ON__0 =
-      new StringId(1432, "GemFire P2P Listener started on  {0}");
+      new StringId(1432, "GemFire P2P Listener started on {0}");
 
   public static final StringId DirectChannel_UNABLE_TO_INITIALIZE_DIRECT_CHANNEL_BECAUSE__0 =
       new StringId(1434, "Unable to initialize direct channel because:  {0}");
@@ -3604,12 +3604,6 @@ public class LocalizedStrings {
   public static final StringId RegisterInterest_CACHECLIENTPROXY_FOR_THIS_CLIENT_IS_NO_LONGER_ON_THE_SERVER_SO_REGISTERINTEREST_OPERATION_IS_UNSUCCESSFUL =
       new StringId(3176,
           "CacheClientProxy for this client is no longer on the server , so registerInterest operation is unsuccessful");
-  public static final StringId ReliableMessageQueueFactoryImpl_REGIONS_WITH_MESSAGE_QUEUING_ALREADY_EXIST =
-      new StringId(3177, "Regions with message queuing already exist");
-  public static final StringId ReliableMessageQueueFactoryImpl_RELIABLE_MESSAGE_QUEUE_IS_CLOSED =
-      new StringId(3178, "reliable message queue is closed");
-  public static final StringId ReliableMessageQueueFactoryImpl_UNEXPECTED_QUEUEDREGIONDATA_0_FOR_REGION_1 =
-      new StringId(3179, "unexpected QueuedRegionData  {0}  for region  {1}");
   public static final StringId RemoteBridgeServer_A_REMOTE_BRIDGESERVER_CANNOT_BE_STARTED =
       new StringId(3180, "A remote BridgeServer cannot be started.");
   public static final StringId RemoteBridgeServer_A_REMOTE_BRIDGESERVER_CANNOT_BE_STOPPED =
@@ -7117,9 +7111,9 @@ public class LocalizedStrings {
   public static final StringId Launcher_Command_START_PID_UNAVAILABLE_ERROR_MESSAGE = new StringId(
       5249, "The process ID could not be determined while starting {0} {1} in {2}: {3}");
   public static final StringId Launcher_ServiceStatus_STARTING_MESSAGE = new StringId(5250,
-      "Starting {0} in {1} on {2} as {3} at {4}\nProcess ID: {5}\nGemFire Version: {6}\nJava Version: {7}\nLog File: {8}\nJVM Arguments: {9}\nClass-Path: {10}");
+      "Starting {0} in {1} on {2} as {3} at {4}\nProcess ID: {5}\nGeode Version: {6}\nJava Version: {7}\nLog File: {8}\nJVM Arguments: {9}\nClass-Path: {10}");
   public static final StringId Launcher_ServiceStatus_RUNNING_MESSAGE = new StringId(5251,
-      "{0} in {1} on {2} as {3} is currently {4}.\nProcess ID: {5}\nUptime: {6}\nGemFire Version: {7}\nJava Version: {8}\nLog File: {9}\nJVM Arguments: {10}\nClass-Path: {11}");
+      "{0} in {1} on {2} as {3} is currently {4}.\nProcess ID: {5}\nUptime: {6}\nGeode Version: {7}\nJava Version: {8}\nLog File: {9}\nJVM Arguments: {10}\nClass-Path: {11}");
   public static final StringId Launcher_ServiceStatus_STOPPED_MESSAGE =
       new StringId(5252, "{0} in {1} on {2} has been requested to stop.");
   public static final StringId Launcher_ServiceStatus_MESSAGE =
@@ -7665,6 +7659,33 @@ public class LocalizedStrings {
       new StringId(6647,
           "Cannot create GatewaySender {0} because the maximum ({1}) has been reached");
 
+  public static final StringId AbstractGatewaySender_WAIT_UNTIL_FLUSHED_NOT_SUPPORTED_FOR_SERIAL_SENDERS =
+      new StringId(6648, "waitUntilFlushed is not currently supported for serial gateway senders");
+  public static final StringId AbstractGatewaySender_CAUGHT_EXCEPTION_ATTEMPTING_WAIT_UNTIL_FLUSHED_RETRYING =
+      new StringId(6649,
+          "Caught the following exception attempting waitUntilFlushed and will retry:");
+  public static final StringId AbstractGatewaySender_CAUGHT_EXCEPTION_ATTEMPTING_WAIT_UNTIL_FLUSHED_RETURNING =
+      new StringId(6650,
+          "Caught the following exception attempting waitUntilFlushed and will return:");
+
+  public static final StringId LuceneService_INDEX_0_NOT_FOUND_IN_REGION_1 =
+      new StringId(6651, "Lucene index {0} was not found in region {1}");
+  public static final StringId LuceneService_DESTROYED_INDEX_0_FROM_1_REGION_2 =
+      new StringId(6652, "Destroyed Lucene index {1} from {0} region {2}");
+
+  public static final StringId PoolFactoryImpl_CAUGHT_EXCEPTION_ATTEMPTING_TO_ADD_REMOTE_LOCATOR_0 =
+      new StringId(6653,
+          "Caught the following exception attempting to add remote locator {0}. The locator will be ignored.");
+
+  public static final StringId LuceneService_NO_INDEXES_WERE_FOUND_IN_REGION_0 =
+      new StringId(6654, "No Lucene indexes were found in region {0}");
+
+  public static final StringId LuceneService_CANNOT_CREATE_INDEX_0_ON_REGION_1_BECAUSE_IT_IS_NOT_DEFINED_IN_ANOTHER_MEMBER =
+      new StringId(6655,
+          "Cannot create Lucene index {0} on region {1} because it is not defined in another member.");
+  public static final StringId LuceneService_MUST_DEFINE_INDEX_0_ON_REGION_1_BECAUSE_IT_IS_DEFINED_IN_ANOTHER_MEMBER =
+      new StringId(6656,
+          "Must create Lucene index {0} on region {1} because it is defined in another member.");
   /** Testing strings, messageId 90000-99999 **/
 
   /**

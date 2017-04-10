@@ -17,17 +17,18 @@ package org.apache.geode.cache.lucene;
 import static org.apache.geode.cache.lucene.test.LuceneTestUtilities.*;
 import static org.junit.Assert.*;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import org.apache.geode.cache.CacheLoader;
+import org.apache.geode.cache.CacheLoaderException;
+import org.apache.geode.cache.LoaderHelper;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.Tokenizer;
@@ -35,25 +36,17 @@ import org.apache.lucene.analysis.core.KeywordAnalyzer;
 import org.apache.lucene.analysis.core.LowerCaseFilter;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.analysis.util.CharTokenizer;
-import org.apache.lucene.document.IntPoint;
-import org.apache.lucene.search.Query;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.contrib.java.lang.system.SystemOutRule;
 import org.junit.experimental.categories.Category;
 import org.junit.rules.ExpectedException;
 
-import org.apache.geode.DataSerializer;
 import org.apache.geode.cache.Region;
 import org.apache.geode.cache.RegionShortcut;
 import org.apache.geode.cache.lucene.test.TestObject;
-import org.apache.geode.internal.DataSerializableFixedID;
-import org.apache.geode.internal.Version;
-import org.apache.geode.internal.cache.PartitionAttributesImpl;
 import org.apache.geode.pdx.JSONFormatter;
 import org.apache.geode.pdx.PdxInstance;
-import org.apache.geode.pdx.internal.AutoSerializableManager.ObjectArrayField;
 import org.apache.geode.test.junit.categories.IntegrationTest;
 
 /**
@@ -72,7 +65,7 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     Map<String, Analyzer> fields = new HashMap<String, Analyzer>();
     fields.put("field1", new StandardAnalyzer());
     fields.put("field2", new KeywordAnalyzer());
-    luceneService.createIndex(INDEX_NAME, REGION_NAME, fields);
+    luceneService.createIndexFactory().setFields(fields).create(INDEX_NAME, REGION_NAME);
     Region region = cache.createRegionFactory(RegionShortcut.PARTITION).create(REGION_NAME);
     final LuceneIndex index = luceneService.getIndex(INDEX_NAME, REGION_NAME);
 
@@ -89,7 +82,7 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     // <field1:one two three> <field2:one two three>
     // <field1:one@three> <field2:one@three>
 
-    index.waitUntilFlushed(60000);
+    luceneService.waitUntilFlushed(INDEX_NAME, REGION_NAME, 60000, TimeUnit.MILLISECONDS);
 
     // standard analyzer with double quote
     // this query string will be parsed as "one three"
@@ -130,7 +123,8 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
   public void shouldQueryUsingIntRangeQueryProvider() throws Exception {
     // Note: range query on numeric field has some limitations. But IntRangeQueryProvider
     // provided basic functionality
-    luceneService.createIndex(INDEX_NAME, REGION_NAME, LuceneService.REGION_VALUE_FIELD);
+    luceneService.createIndexFactory().setFields(LuceneService.REGION_VALUE_FIELD)
+        .create(INDEX_NAME, REGION_NAME);
     Region region = cache.createRegionFactory(RegionShortcut.PARTITION).create(REGION_NAME);
     final LuceneIndex index = luceneService.getIndex(INDEX_NAME, REGION_NAME);
 
@@ -139,7 +133,7 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     region.put("primitiveInt2", 223);
     region.put("primitiveInt3", 224);
 
-    index.waitUntilFlushed(60000);
+    luceneService.waitUntilFlushed(INDEX_NAME, REGION_NAME, 60000, TimeUnit.MILLISECONDS);
     verifyQueryUsingCustomizedProvider(LuceneService.REGION_VALUE_FIELD, 123, 223, "primitiveInt1",
         "primitiveInt2");
   }
@@ -149,7 +143,8 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
   public void queryParserCannotQueryByRange() throws Exception {
     // Note: range query on numeric field has some limitations. But IntRangeQueryProvider
     // provided basic functionality
-    luceneService.createIndex(INDEX_NAME, REGION_NAME, LuceneService.REGION_VALUE_FIELD);
+    luceneService.createIndexFactory().setFields(LuceneService.REGION_VALUE_FIELD)
+        .create(INDEX_NAME, REGION_NAME);
     Region region = cache.createRegionFactory(RegionShortcut.PARTITION).create(REGION_NAME);
     final LuceneIndex index = luceneService.getIndex(INDEX_NAME, REGION_NAME);
 
@@ -158,14 +153,14 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     region.put("primitiveInt2", 223);
     region.put("primitiveInt3", 224);
 
-    index.waitUntilFlushed(60000);
+    luceneService.waitUntilFlushed(INDEX_NAME, REGION_NAME, 60000, TimeUnit.MILLISECONDS);
 
     // Note: current QueryParser cannot query by range. It's a known issue in lucene
     verifyQuery(LuceneService.REGION_VALUE_FIELD + ":[123 TO 223]",
         LuceneService.REGION_VALUE_FIELD);
 
     region.put("primitiveDouble1", 123.0);
-    index.waitUntilFlushed(60000);
+    luceneService.waitUntilFlushed(INDEX_NAME, REGION_NAME, 60000, TimeUnit.MILLISECONDS);
 
     thrown.expectMessage("java.lang.IllegalArgumentException");
     verifyQueryUsingCustomizedProvider(LuceneService.REGION_VALUE_FIELD, 123, 223, "primitiveInt1",
@@ -202,8 +197,10 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     assertEquals(region.values(), new HashSet(query.findValues()));
   }
 
-  private LuceneQuery<Object, Object> addValuesAndCreateQuery(int pagesize) {
-    luceneService.createIndex(INDEX_NAME, REGION_NAME, "field1", "field2");
+  private LuceneQuery<Object, Object> addValuesAndCreateQuery(int pagesize)
+      throws InterruptedException {
+    luceneService.createIndexFactory().setFields("field1", "field2").create(INDEX_NAME,
+        REGION_NAME);
     region = cache.createRegionFactory(RegionShortcut.PARTITION).create(REGION_NAME);
     final LuceneIndex index = luceneService.getIndex(INDEX_NAME, REGION_NAME);
 
@@ -219,7 +216,7 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     region.put("F", new TestObject(value3, value3));
     region.put("G", new TestObject(value1, value2));
 
-    index.waitUntilFlushed(60000);
+    luceneService.waitUntilFlushed(INDEX_NAME, REGION_NAME, 60000, TimeUnit.MILLISECONDS);
     return luceneService.createLuceneQueryFactory().setPageSize(pagesize).create(INDEX_NAME,
         REGION_NAME, "one", "field1");
   }
@@ -231,7 +228,7 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     // Note: fields has to contain "field1", otherwise, field1 will not be tokenized
     fields.put("field1", null);
     fields.put("field2", new MyCharacterAnalyzer());
-    luceneService.createIndex(INDEX_NAME, REGION_NAME, fields);
+    luceneService.createIndexFactory().setFields(fields).create(INDEX_NAME, REGION_NAME);
     Region region = cache.createRegionFactory(RegionShortcut.PARTITION).create(REGION_NAME);
     final LuceneIndex index = luceneService.getIndex(INDEX_NAME, REGION_NAME);
 
@@ -244,7 +241,7 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     region.put("C", new TestObject(value3, value3));
     region.put("D", new TestObject(value4, value4));
 
-    index.waitUntilFlushed(60000);
+    luceneService.waitUntilFlushed(INDEX_NAME, REGION_NAME, 60000, TimeUnit.MILLISECONDS);
 
     verifyQuery("field1:one AND field2:two_four", DEFAULT_FIELD, "A");
     verifyQuery("field1:one AND field2:two", DEFAULT_FIELD, "A");
@@ -256,14 +253,14 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     Map<String, Analyzer> fields = new HashMap<String, Analyzer>();
     fields.put("field1", null);
     fields.put("field2", null);
-    luceneService.createIndex(INDEX_NAME, REGION_NAME, fields);
+    luceneService.createIndexFactory().setFields(fields).create(INDEX_NAME, REGION_NAME);
     Region region = cache.createRegionFactory(RegionShortcut.PARTITION).create(REGION_NAME);
     final LuceneIndex index = luceneService.getIndex(INDEX_NAME, REGION_NAME);
 
     // Put two values with some of the same tokens
     String value1 = "one three";
     region.put("A", new TestObject(value1, null));
-    index.waitUntilFlushed(60000);
+    luceneService.waitUntilFlushed(INDEX_NAME, REGION_NAME, 60000, TimeUnit.MILLISECONDS);
 
     verifyQuery("field1:one", DEFAULT_FIELD, "A");
   }
@@ -274,7 +271,7 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     fields.put("name", null);
     fields.put("lastName", null);
     fields.put("address", null);
-    luceneService.createIndex(INDEX_NAME, REGION_NAME, fields);
+    luceneService.createIndexFactory().setFields(fields).create(INDEX_NAME, REGION_NAME);
     Region region = cache.createRegionFactory(RegionShortcut.PARTITION).create(REGION_NAME);
     final LuceneIndex index = luceneService.getIndex(INDEX_NAME, REGION_NAME);
 
@@ -282,7 +279,7 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     PdxInstance pdx1 = insertAJson(region, "jsondoc1");
     PdxInstance pdx2 = insertAJson(region, "jsondoc2");
     PdxInstance pdx10 = insertAJson(region, "jsondoc10");
-    index.waitUntilFlushed(60000);
+    luceneService.waitUntilFlushed(INDEX_NAME, REGION_NAME, 60000, TimeUnit.MILLISECONDS);
 
     HashMap expectedResults = new HashMap();
     expectedResults.put("jsondoc1", pdx1);
@@ -292,12 +289,13 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
 
   @Test()
   public void shouldAllowQueryOnRegionWithStringValue() throws Exception {
-    luceneService.createIndex(INDEX_NAME, REGION_NAME, LuceneService.REGION_VALUE_FIELD);
+    luceneService.createIndexFactory().setFields(LuceneService.REGION_VALUE_FIELD)
+        .create(INDEX_NAME, REGION_NAME);
     Region region = cache.createRegionFactory(RegionShortcut.PARTITION).create(REGION_NAME);
     final LuceneIndex index = luceneService.getIndex(INDEX_NAME, REGION_NAME);
 
     region.put("A", "one three");
-    index.waitUntilFlushed(60000);
+    luceneService.waitUntilFlushed(INDEX_NAME, REGION_NAME, 60000, TimeUnit.MILLISECONDS);
 
     verifyQuery("one", LuceneService.REGION_VALUE_FIELD, "A");
   }
@@ -305,7 +303,7 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
   @Test()
   public void throwFunctionExceptionWhenGivenBadQuery() throws Exception {
     LuceneService luceneService = LuceneServiceProvider.get(cache);
-    luceneService.createIndex(INDEX_NAME, REGION_NAME, "text");
+    luceneService.createIndexFactory().setFields("text").create(INDEX_NAME, REGION_NAME);
     Region region = cache.createRegionFactory(RegionShortcut.PARTITION).create(REGION_NAME);
 
     // Create a query that throws an exception
@@ -349,6 +347,44 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
     assertEquals(2, page2.size());
     final List<LuceneResultStruct<Object, Object>> page3 = pages.next();
     assertEquals(2, page3.size());
+    assertFalse(pages.hasNext());
+
+    allEntries.addAll(page1);
+    allEntries.addAll(page2);
+    allEntries.addAll(page3);
+    assertEquals(region.keySet(),
+        allEntries.stream().map(entry -> entry.getKey()).collect(Collectors.toSet()));
+    assertEquals(region.values(),
+        allEntries.stream().map(entry -> entry.getValue()).collect(Collectors.toSet()));
+  }
+
+  @Test
+  public void shouldReturnCorrectResultsOnDeletionAfterQueryExecutionWithLoader() throws Exception {
+    final int pageSize = 2;
+    final LuceneQuery<Object, Object> query = addValuesAndCreateQuery(pageSize);
+    region.getAttributesMutator().setCacheLoader(new CacheLoader() {
+      @Override
+      public Object load(final LoaderHelper helper) throws CacheLoaderException {
+        return new TestObject("should not", "load this");
+      }
+
+      @Override
+      public void close() {
+
+      }
+    });
+    final PageableLuceneQueryResults<Object, Object> pages = query.findPages();
+    List<LuceneResultStruct<Object, Object>> allEntries = new ArrayList<>();
+    assertTrue(pages.hasNext());
+    assertEquals(7, pages.size());
+    // Destroying an entry from the region after the query is executed.
+    region.destroy("C");
+    final List<LuceneResultStruct<Object, Object>> page1 = pages.next();
+    assertEquals(pageSize, page1.size());
+    final List<LuceneResultStruct<Object, Object>> page2 = pages.next();
+    assertEquals(pageSize, page2.size());
+    final List<LuceneResultStruct<Object, Object>> page3 = pages.next();
+    assertEquals(pageSize, page3.size());
     assertFalse(pages.hasNext());
 
     allEntries.addAll(page1);
@@ -469,54 +505,6 @@ public class LuceneQueriesIntegrationTest extends LuceneIntegrationTest {
       Tokenizer tokenizer = new MyCharacterTokenizer();
       TokenStream filter = new LowerCaseFilter(tokenizer);
       return new TokenStreamComponents(tokenizer, filter);
-    }
-  }
-
-  public static class IntRangeQueryProvider
-      implements LuceneQueryProvider, DataSerializableFixedID {
-    public static final short LUCENE_INT_RANGE_QUERY_PROVIDER = 2177;
-    String fieldName;
-    int lowerValue;
-    int upperValue;
-
-    private transient Query luceneQuery;
-
-    public IntRangeQueryProvider(String fieldName, int lowerValue, int upperValue) {
-      this.fieldName = fieldName;
-      this.lowerValue = lowerValue;
-      this.upperValue = upperValue;
-    }
-
-    @Override
-    public Version[] getSerializationVersions() {
-      return null;
-    }
-
-    @Override
-    public int getDSFID() {
-      return LUCENE_INT_RANGE_QUERY_PROVIDER;
-    }
-
-    @Override
-    public void toData(DataOutput out) throws IOException {
-      DataSerializer.writeString(fieldName, out);
-      out.writeInt(lowerValue);
-      out.writeInt(upperValue);
-    }
-
-    @Override
-    public void fromData(DataInput in) throws IOException, ClassNotFoundException {
-      fieldName = DataSerializer.readString(in);
-      lowerValue = in.readInt();
-      upperValue = in.readInt();
-    }
-
-    @Override
-    public Query getQuery(LuceneIndex index) throws LuceneQueryException {
-      if (luceneQuery == null) {
-        luceneQuery = IntPoint.newRangeQuery(fieldName, lowerValue, upperValue);
-      }
-      return luceneQuery;
     }
   }
 }

@@ -16,15 +16,22 @@
 package org.apache.geode.cache.lucene.internal;
 
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 
 import org.apache.geode.cache.Region;
+import org.apache.geode.cache.execute.Execution;
+import org.apache.geode.cache.execute.FunctionException;
+import org.apache.geode.cache.execute.FunctionService;
+import org.apache.geode.cache.execute.ResultCollector;
 import org.apache.geode.cache.lucene.PageableLuceneQueryResults;
 import org.apache.geode.cache.lucene.LuceneResultStruct;
 import org.apache.geode.cache.lucene.internal.distributed.EntryScore;
+import org.apache.geode.cache.lucene.internal.results.LuceneGetPageFunction;
+import org.apache.geode.cache.lucene.internal.results.MapResultCollector;
 
 /**
  * Implementation of PageableLuceneQueryResults that fetchs a page at a time from the server, given
@@ -73,22 +80,40 @@ public class PageableLuceneQueryResultsImpl<K, V> implements PageableLuceneQuery
 
 
   public List<LuceneResultStruct<K, V>> getHitEntries(int fromIndex, int toIndex) {
-    List<EntryScore<K>> scores = hits.subList(fromIndex, toIndex);
-    ArrayList<K> keys = new ArrayList<K>(scores.size());
-    for (EntryScore<K> score : scores) {
-      keys.add(score.getKey());
-    }
+    ArrayList<LuceneResultStruct<K, V>> results = null;
+    try {
+      List<EntryScore<K>> scores = hits.subList(fromIndex, toIndex);
+      Set<K> keys = new HashSet<K>(scores.size());
+      for (EntryScore<K> score : scores) {
+        keys.add(score.getKey());
+      }
 
-    Map<K, V> values = userRegion.getAll(keys);
+      Map<K, V> values = getValues(keys);
 
-    ArrayList<LuceneResultStruct<K, V>> results =
-        new ArrayList<LuceneResultStruct<K, V>>(scores.size());
-    for (EntryScore<K> score : scores) {
-      V value = values.get(score.getKey());
-      if (value != null)
-        results.add(new LuceneResultStructImpl(score.getKey(), value, score.getScore()));
+
+      results = new ArrayList<LuceneResultStruct<K, V>>(values.size());
+      for (EntryScore<K> score : scores) {
+        V value = values.get(score.getKey());
+        if (value != null)
+          results.add(new LuceneResultStructImpl(score.getKey(), value, score.getScore()));
+      }
+    } catch (FunctionException functionException) {
+      if (functionException.getCause() instanceof RuntimeException) {
+        throw (RuntimeException) functionException.getCause();
+      }
+      throw functionException;
     }
     return results;
+  }
+
+  protected Map<K, V> getValues(final Set<K> keys) {
+    ResultCollector resultCollector = onRegion().withFilter(keys)
+        .withCollector(new MapResultCollector()).execute(LuceneGetPageFunction.ID);
+    return (Map<K, V>) resultCollector.getResult();
+  }
+
+  protected Execution onRegion() {
+    return FunctionService.onRegion(userRegion);
   }
 
   @Override

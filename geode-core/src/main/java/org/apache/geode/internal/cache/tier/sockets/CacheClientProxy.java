@@ -1014,7 +1014,7 @@ public class CacheClientProxy implements ClientSession {
     }
     try {
       this.cils[RegisterInterestTracker.interestListIndex].clearClientInterestList();
-    } catch (CacheClosedException e) {
+    } catch (CancelException e) {
       // ignore if cache is shutting down
     }
     // Commented to fix bug 40259
@@ -1970,7 +1970,9 @@ public class CacheClientProxy implements ClientSession {
          */
         Object task = _durableExpirationTask.getAndSet(null);
         if (task != null) {
-          ((SystemTimerTask) task).cancel();
+          if (((SystemTimerTask) task).cancel()) {
+            _cache.purgeCCPTimer();
+          }
         }
       }
 
@@ -1988,7 +1990,9 @@ public class CacheClientProxy implements ClientSession {
             LocalizedStrings.CacheClientProxy_0_CANCELLING_EXPIRATION_TASK_SINCE_THE_CLIENT_HAS_RECONNECTED,
             this));
       }
-      task.cancel();
+      if (task.cancel()) {
+        _cache.purgeCCPTimer();
+      }
     }
   }
 
@@ -2056,7 +2060,7 @@ public class CacheClientProxy implements ClientSession {
     protected FilterProfile getProfile(String regionName) {
       try {
         return this.ccp._cache.getFilterProfile(regionName);
-      } catch (CacheClosedException e) {
+      } catch (CancelException e) {
         return null;
       }
     }
@@ -2537,16 +2541,20 @@ public class CacheClientProxy implements ClientSession {
           if (isStopped()) {
             break;
           }
-          // Process the message
-          long start = getStatistics().startTime();
-          //// BUGFIX for BUG#38206 and BUG#37791
-          boolean isDispatched = dispatchMessage(clientMessage);
-          getStatistics().endMessage(start);
-          if (isDispatched) {
-            this._messageQueue.remove();
-            if (clientMessage instanceof ClientMarkerMessageImpl) {
-              getProxy().markerEnqueued = false;
+          if (clientMessage != null) {
+            // Process the message
+            long start = getStatistics().startTime();
+            //// BUGFIX for BUG#38206 and BUG#37791
+            boolean isDispatched = dispatchMessage(clientMessage);
+            getStatistics().endMessage(start);
+            if (isDispatched) {
+              this._messageQueue.remove();
+              if (clientMessage instanceof ClientMarkerMessageImpl) {
+                getProxy().markerEnqueued = false;
+              }
             }
+          } else {
+            this._messageQueue.remove();
           }
           clientMessage = null;
         } catch (MessageTooLargeException e) {

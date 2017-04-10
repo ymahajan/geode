@@ -58,7 +58,6 @@ import org.apache.geode.internal.GemFireVersion;
 import org.apache.geode.internal.OSProcess;
 import org.apache.geode.internal.cache.persistence.PersistentMemberPattern;
 import org.apache.geode.internal.i18n.LocalizedStrings;
-import org.apache.geode.internal.lang.ClassUtils;
 import org.apache.geode.internal.lang.ObjectUtils;
 import org.apache.geode.internal.lang.StringUtils;
 import org.apache.geode.internal.lang.SystemUtils;
@@ -74,7 +73,6 @@ import org.apache.geode.internal.process.signal.SignalEvent;
 import org.apache.geode.internal.process.signal.SignalListener;
 import org.apache.geode.internal.util.IOUtils;
 import org.apache.geode.internal.util.StopWatch;
-import org.apache.geode.lang.AttachAPINotFoundException;
 import org.apache.geode.management.DistributedSystemMXBean;
 import org.apache.geode.management.MemberMXBean;
 import org.apache.geode.management.cli.CliMetaData;
@@ -95,6 +93,7 @@ import org.apache.geode.management.internal.cli.util.CauseFinder;
 import org.apache.geode.management.internal.cli.util.CommandStringBuilder;
 import org.apache.geode.management.internal.cli.util.ConnectionEndpoint;
 import org.apache.geode.management.internal.cli.util.JConsoleNotFoundException;
+import org.apache.geode.management.internal.cli.util.ThreePhraseGenerator;
 import org.apache.geode.management.internal.cli.util.VisualVmNotFoundException;
 import org.apache.geode.management.internal.configuration.domain.SharedConfigurationStatus;
 import org.apache.geode.management.internal.configuration.messages.SharedConfigurationStatusRequest;
@@ -131,7 +130,6 @@ import java.util.Set;
 import java.util.Stack;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import javax.management.Query;
@@ -168,11 +166,6 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
   protected static final int MINIMUM_HEAP_FREE_RATIO = 10;
   protected static final int NUM_ATTEMPTS_FOR_SHARED_CONFIGURATION_STATUS = 3;
 
-  protected static final AtomicReference<Boolean> ATTACH_API_AVAILABLE =
-      new AtomicReference<>(null);
-
-  protected static final String ATTACH_API_CLASS_NAME =
-      "com.sun.tools.attach.AttachNotSupportedException";
   protected static final String GEODE_HOME = System.getenv("GEODE_HOME");
   protected static final String JAVA_HOME = System.getProperty("java.home");
   protected static final String LOCALHOST = "localhost";
@@ -184,26 +177,19 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
   protected static final String CORE_DEPENDENCIES_JAR_PATHNAME =
       IOUtils.appendToPath(GEODE_HOME, "lib", "geode-dependencies.jar");
 
-  protected static boolean isAttachApiAvailable() {
-    if (ATTACH_API_AVAILABLE.get() == null) {
-      try {
-        ClassUtils.forName(ATTACH_API_CLASS_NAME, new AttachAPINotFoundException());
-        ATTACH_API_AVAILABLE.set(Boolean.TRUE);
-      } catch (AttachAPINotFoundException ignore) {
-        ATTACH_API_AVAILABLE.set(Boolean.FALSE);
-      }
-    }
+  private final ThreePhraseGenerator nameGenerator;
 
-    return ATTACH_API_AVAILABLE.get();
+  public LauncherLifecycleCommands() {
+    nameGenerator = new ThreePhraseGenerator();
   }
 
   @CliCommand(value = CliStrings.START_LOCATOR, help = CliStrings.START_LOCATOR__HELP)
   @CliMetaData(shellOnly = true,
       relatedTopic = {CliStrings.TOPIC_GEODE_LOCATOR, CliStrings.TOPIC_GEODE_LIFECYCLE})
   public Result startLocator(
-      @CliOption(key = CliStrings.START_LOCATOR__MEMBER_NAME, mandatory = true,
+      @CliOption(key = CliStrings.START_LOCATOR__MEMBER_NAME, mandatory = false,
           unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
-          help = CliStrings.START_LOCATOR__MEMBER_NAME__HELP) final String memberName,
+          help = CliStrings.START_LOCATOR__MEMBER_NAME__HELP) String memberName,
       @CliOption(key = CliStrings.START_LOCATOR__BIND_ADDRESS,
           unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
           help = CliStrings.START_LOCATOR__BIND_ADDRESS__HELP) final String bindAddress,
@@ -269,8 +255,19 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
           unspecifiedDefaultValue = "false",
           help = CliStrings.START_LOCATOR__LOAD__SHARED_CONFIGURATION__FROM__FILESYSTEM__HELP) final boolean loadSharedConfigurationFromDirectory,
       @CliOption(key = CliStrings.START_LOCATOR__CLUSTER__CONFIG__DIR, unspecifiedDefaultValue = "",
-          help = CliStrings.START_LOCATOR__CLUSTER__CONFIG__DIR__HELP) final String clusterConfigDir) {
+          help = CliStrings.START_LOCATOR__CLUSTER__CONFIG__DIR__HELP) final String clusterConfigDir,
+      @CliOption(key = CliStrings.START_LOCATOR__HTTP_SERVICE_PORT,
+          unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
+          help = CliStrings.START_LOCATOR__HTTP_SERVICE_PORT__HELP) final Integer httpServicePort,
+      @CliOption(key = CliStrings.START_LOCATOR__HTTP_SERVICE_BIND_ADDRESS,
+          unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
+          help = CliStrings.START_LOCATOR__HTTP_SERVICE_BIND_ADDRESS__HELP) final String httpServiceBindAddress) {
     try {
+      if (StringUtils.isBlank(memberName)) {
+        // when the user doesn't give us a name, we make one up!
+        memberName = nameGenerator.generate('-');
+      }
+
       if (workingDirectory == null) {
         // attempt to use or make sub-directory using memberName...
         File locatorWorkingDirectory = new File(memberName);
@@ -324,6 +321,11 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
           StringUtils.valueOf(loadSharedConfigurationFromDirectory, StringUtils.EMPTY_STRING));
       gemfireProperties.setProperty(CLUSTER_CONFIGURATION_DIR,
           StringUtils.valueOf(clusterConfigDir, StringUtils.EMPTY_STRING));
+      gemfireProperties.setProperty(HTTP_SERVICE_PORT,
+          StringUtils.valueOf(httpServicePort, StringUtils.EMPTY_STRING));
+      gemfireProperties.setProperty(HTTP_SERVICE_BIND_ADDRESS,
+          StringUtils.valueOf(httpServiceBindAddress, StringUtils.EMPTY_STRING));
+
 
       // read the OSProcess enable redirect system property here -- TODO: replace with new GFSH
       // argument
@@ -380,40 +382,33 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
                 new File(locatorLauncher.getWorkingDirectory()))),
             null);
 
+        locatorState = locatorStatus(workingDirectory, memberName);
         do {
-          try {
-            final int exitValue = locatorProcess.exitValue();
-
-            stderrReader.join(PROCESS_STREAM_READER_JOIN_TIMEOUT_MILLIS); // was Long.MAX_VALUE
-
-            // Gfsh.println(message);
-
-            return ResultBuilder.createShellClientErrorResult(
-                String.format(CliStrings.START_LOCATOR__PROCESS_TERMINATED_ABNORMALLY_ERROR_MESSAGE,
-                    exitValue, locatorLauncher.getWorkingDirectory(), message.toString()));
-          } catch (IllegalThreadStateException ignore) {
-            // the IllegalThreadStateException is expected; it means the Locator's process has not
-            // terminated,
-            // and basically should not
+          if (locatorProcess.isAlive()) {
             Gfsh.print(".");
 
             synchronized (this) {
               TimeUnit.MILLISECONDS.timedWait(this, 500);
             }
 
-            locatorState = (ProcessUtils.isAttachApiAvailable()
-                ? locatorStatus(locatorPidFile, oldPid, memberName)
-                : locatorStatus(workingDirectory, memberName));
+            locatorState = locatorStatus(workingDirectory, memberName);
 
             String currentLocatorStatusMessage = locatorState.getStatusMessage();
 
             if (isStartingOrNotResponding(locatorState.getStatus())
-                && !(StringUtils.isBlank(currentLocatorStatusMessage) || currentLocatorStatusMessage
-                    .equalsIgnoreCase(previousLocatorStatusMessage))) {
+                && !(StringUtils.isBlank(currentLocatorStatusMessage)
+                    || currentLocatorStatusMessage.equalsIgnoreCase(previousLocatorStatusMessage)
+                    || currentLocatorStatusMessage.trim().toLowerCase().equals("null"))) {
               Gfsh.println();
               Gfsh.println(currentLocatorStatusMessage);
               previousLocatorStatusMessage = currentLocatorStatusMessage;
             }
+          } else {
+            final int exitValue = locatorProcess.exitValue();
+
+            return ResultBuilder.createShellClientErrorResult(
+                String.format(CliStrings.START_LOCATOR__PROCESS_TERMINATED_ABNORMALLY_ERROR_MESSAGE,
+                    exitValue, locatorLauncher.getWorkingDirectory(), message.toString()));
           }
         } while (!(registeredLocatorSignalListener && locatorSignalListener.isSignaled())
             && isStartingOrNotResponding(locatorState.getStatus()));
@@ -1199,29 +1194,6 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
     return new File(new File(JAVA_HOME, "bin"), "java").getPath();
   }
 
-  @Deprecated
-  protected String getToolsJarPath() throws AttachAPINotFoundException {
-    String toolsJarPathname = null;
-
-    if (!SystemUtils.isMacOSX()) {
-      toolsJarPathname = IOUtils.appendToPath(JAVA_HOME, "lib", "tools.jar");
-
-      if (!IOUtils.isExistingPathname(toolsJarPathname)) {
-        // perhaps the java.home System property refers to the JRE ($JAVA_HOME/jre)...
-        String JDK_HOME = new File(JAVA_HOME).getParentFile().getPath();
-        toolsJarPathname = IOUtils.appendToPath(JDK_HOME, "lib", "tools.jar");
-      }
-
-      try {
-        IOUtils.verifyPathnameExists(toolsJarPathname);
-      } catch (IOException e) {
-        throw new AttachAPINotFoundException(getAttachAPINotFoundMessage());
-      }
-    }
-
-    return toolsJarPathname;
-  }
-
   // TODO refactor the following method into a common base class or utility class
   protected String getLocalHost() {
     try {
@@ -1229,11 +1201,6 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
     } catch (UnknownHostException ignore) {
       return LOCALHOST;
     }
-  }
-
-  protected String getAttachAPINotFoundMessage() {
-    return CliStrings.format(CliStrings.ATTACH_API_IN_0_NOT_FOUND_ERROR_MESSAGE,
-        ((SystemUtils.isMacOSX() && SystemUtils.isAppleJVM()) ? "classes.jar" : "tools.jar"));
   }
 
   protected String getLocatorId(final String host, final Integer port) {
@@ -1324,8 +1291,7 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
   }
 
   protected boolean isVmWithProcessIdRunning(final Integer pid) {
-    // note: this will use JNA if available or Attach if available or return false if neither is
-    // available
+    // note: this will use JNA if available or return false
     return ProcessUtils.isProcessAlive(pid);
   }
 
@@ -1333,6 +1299,9 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
   @CliMetaData(shellOnly = true,
       relatedTopic = {CliStrings.TOPIC_GEODE_SERVER, CliStrings.TOPIC_GEODE_LIFECYCLE})
   public Result startServer(
+      @CliOption(key = CliStrings.START_SERVER__NAME, mandatory = false,
+          unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
+          help = CliStrings.START_SERVER__NAME__HELP) String memberName,
       @CliOption(key = CliStrings.START_SERVER__ASSIGN_BUCKETS, unspecifiedDefaultValue = "false",
           specifiedDefaultValue = "true",
           help = CliStrings.START_SERVER__ASSIGN_BUCKETS__HELP) final Boolean assignBuckets,
@@ -1444,9 +1413,6 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
       @CliOption(key = CliStrings.START_SERVER__MESSAGE__TIME__TO__LIVE,
           unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
           help = CliStrings.START_SERVER__MESSAGE__TIME__TO__LIVE__HELP) final Integer messageTimeToLive,
-      @CliOption(key = CliStrings.START_SERVER__NAME, mandatory = true,
-          unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
-          help = CliStrings.START_SERVER__NAME__HELP) final String memberName,
       @CliOption(key = CliStrings.START_SERVER__OFF_HEAP_MEMORY_SIZE,
           unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
           help = CliStrings.START_SERVER__OFF_HEAP_MEMORY_SIZE__HELP) final String offHeapMemorySize,
@@ -1494,6 +1460,11 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
   // NOTICE: keep the parameters in alphabetical order based on their CliStrings.START_SERVER_* text
   {
     try {
+      if (StringUtils.isBlank(memberName)) {
+        // when the user doesn't give us a name, we make one up!
+        memberName = nameGenerator.generate('-');
+      }
+
       // prompt for password is username is specified in the command
       if (!StringUtils.isBlank(userName)) {
         if (StringUtils.isBlank(passwordToUse)) {
@@ -1668,40 +1639,34 @@ public class LauncherLifecycleCommands extends AbstractCommandsSupport {
                 new File(serverLauncher.getWorkingDirectory()))),
             null);
 
+        serverState = serverStatus(workingDirectory, memberName);
         do {
-          try {
-            final int exitValue = serverProcess.exitValue();
-
-            stderrReader.join(PROCESS_STREAM_READER_JOIN_TIMEOUT_MILLIS); // was Long.MAX_VALUE
-
-            // Gfsh.println(message);
-
-            return ResultBuilder.createShellClientErrorResult(
-                String.format(CliStrings.START_SERVER__PROCESS_TERMINATED_ABNORMALLY_ERROR_MESSAGE,
-                    exitValue, serverLauncher.getWorkingDirectory(), message.toString()));
-          } catch (IllegalThreadStateException ignore) {
-            // the IllegalThreadStateException is expected; it means the Server's process has not
-            // terminated,
-            // and should not
+          if (serverProcess.isAlive()) {
             Gfsh.print(".");
 
             synchronized (this) {
               TimeUnit.MILLISECONDS.timedWait(this, 500);
             }
 
-            serverState = (ProcessUtils.isAttachApiAvailable()
-                ? serverStatus(serverPidFile, oldPid, memberName)
-                : serverStatus(workingDirectory, memberName));
+            serverState = serverStatus(workingDirectory, memberName);
 
             String currentServerStatusMessage = serverState.getStatusMessage();
 
             if (isStartingOrNotResponding(serverState.getStatus())
                 && !(StringUtils.isBlank(currentServerStatusMessage)
-                    || currentServerStatusMessage.equalsIgnoreCase(previousServerStatusMessage))) {
+                    || currentServerStatusMessage.equalsIgnoreCase(previousServerStatusMessage)
+                    || currentServerStatusMessage.trim().toLowerCase().equals("null"))) {
               Gfsh.println();
               Gfsh.println(currentServerStatusMessage);
               previousServerStatusMessage = currentServerStatusMessage;
             }
+          } else {
+            final int exitValue = serverProcess.exitValue();
+
+            return ResultBuilder.createShellClientErrorResult(
+                String.format(CliStrings.START_SERVER__PROCESS_TERMINATED_ABNORMALLY_ERROR_MESSAGE,
+                    exitValue, serverLauncher.getWorkingDirectory(), message.toString()));
+
           }
         } while (!(registeredServerSignalListener && serverSignalListener.isSignaled())
             && isStartingOrNotResponding(serverState.getStatus()));

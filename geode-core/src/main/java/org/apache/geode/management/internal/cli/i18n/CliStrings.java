@@ -14,17 +14,37 @@
  */
 package org.apache.geode.management.internal.cli.i18n;
 
-import static org.apache.geode.distributed.ConfigurationProperties.*;
-
-import java.text.MessageFormat;
+import static org.apache.geode.distributed.ConfigurationProperties.ARCHIVE_DISK_SPACE_LIMIT;
+import static org.apache.geode.distributed.ConfigurationProperties.ARCHIVE_FILE_SIZE_LIMIT;
+import static org.apache.geode.distributed.ConfigurationProperties.CACHE_XML_FILE;
+import static org.apache.geode.distributed.ConfigurationProperties.DURABLE_CLIENT_ID;
+import static org.apache.geode.distributed.ConfigurationProperties.ENABLE_CLUSTER_CONFIGURATION;
+import static org.apache.geode.distributed.ConfigurationProperties.ENABLE_TIME_STATISTICS;
+import static org.apache.geode.distributed.ConfigurationProperties.JMX_MANAGER;
+import static org.apache.geode.distributed.ConfigurationProperties.LOCATORS;
+import static org.apache.geode.distributed.ConfigurationProperties.LOG_DISK_SPACE_LIMIT;
+import static org.apache.geode.distributed.ConfigurationProperties.LOG_FILE_SIZE_LIMIT;
+import static org.apache.geode.distributed.ConfigurationProperties.LOG_LEVEL;
+import static org.apache.geode.distributed.ConfigurationProperties.MCAST_ADDRESS;
+import static org.apache.geode.distributed.ConfigurationProperties.MCAST_PORT;
+import static org.apache.geode.distributed.ConfigurationProperties.MEMCACHED_BIND_ADDRESS;
+import static org.apache.geode.distributed.ConfigurationProperties.MEMCACHED_PORT;
+import static org.apache.geode.distributed.ConfigurationProperties.MEMCACHED_PROTOCOL;
+import static org.apache.geode.distributed.ConfigurationProperties.SERVER_BIND_ADDRESS;
+import static org.apache.geode.distributed.ConfigurationProperties.SOCKET_BUFFER_SIZE;
+import static org.apache.geode.distributed.ConfigurationProperties.STATISTIC_ARCHIVE_FILE;
+import static org.apache.geode.distributed.ConfigurationProperties.STATISTIC_SAMPLE_RATE;
+import static org.apache.geode.distributed.ConfigurationProperties.USE_CLUSTER_CONFIGURATION;
 
 import org.apache.geode.cache.PartitionAttributesFactory;
 import org.apache.geode.cache.server.CacheServer;
 import org.apache.geode.distributed.ConfigurationProperties;
+import org.apache.geode.distributed.internal.ClusterConfigurationService;
 import org.apache.geode.distributed.internal.DistributionConfig;
-import org.apache.geode.distributed.internal.SharedConfiguration;
 import org.apache.geode.internal.cache.xmlcache.CacheXml;
 import org.apache.geode.management.internal.cli.shell.Gfsh;
+
+import java.text.MessageFormat;
 
 /**
  * - * Contains 'String' constants used as key to the Localized strings to be used in classes under
@@ -134,12 +154,12 @@ public class CliStrings {
       "No caching members for group {0} could be found.  Please verify the group and try again.";
   public static final String NO_MEMBERS_FOUND_MESSAGE = "No Members Found";
   public static final String NO_CACHING_MEMBERS_FOUND_MESSAGE = "No caching members found.";
-  public static final String COMMAND_FAILURE_MESSAGE = "Error occured while executing : {0}";
+  public static final String COMMAND_FAILURE_MESSAGE = "Error occurred while executing : {0}";
   public static final String EXCEPTION_CLASS_AND_MESSAGE = "Exception : {0} , Message : {1}";
   public static final String GROUP_EMPTY_ERROR_MESSAGE = "No members found in group : {0}";
   public static final String REGION_NOT_FOUND = "Region : {0} not found";
   public static final String INVALID_REGION_NAME = "Invalid region name";
-  public static final String INVALID_FILE_EXTENTION =
+  public static final String INVALID_FILE_EXTENSION =
       "Invalid file type, the file extension must be \"{0}\"";
   public static final String GEODE_DATA_FILE_EXTENSION = ".gfd";
   public static final String LOCATOR_HEADER = "Locator";
@@ -1371,7 +1391,7 @@ public class CliStrings {
   public static final String EXPORT_LOGS__HELP = "Export the log files for a member or members.";
   public static final String EXPORT_LOGS__DIR = "dir";
   public static final String EXPORT_LOGS__DIR__HELP =
-      "Directory to which log files will be written.";
+      "Directory to which logs will be written.  This refers to a local directory when exporting logs using an http connection, but refers to the filesystem of the manager when connected via JMX. If not specified, logs are written to the location specified by the user.dir system property.";
   public static final String EXPORT_LOGS__MEMBER = "member";
   public static final String EXPORT_LOGS__MEMBER__HELP =
       "Name/Id of the member whose log files will be exported.";
@@ -1381,7 +1401,7 @@ public class CliStrings {
   public static final String EXPORT_LOGS__MSG__CANNOT_EXECUTE = "Cannot execute";
   public static final String EXPORT_LOGS__LOGLEVEL = LOG_LEVEL;
   public static final String EXPORT_LOGS__LOGLEVEL__HELP =
-      "Minimum level of log entries to export. Valid values are: none, error, info, config , fine, finer and finest.  The default is \"info\".";
+      "Minimum level of log entries to export. Valid values are: fatal, error, warn, info, debug, trace and all.  The default is \"ALL\".";
   public static final String EXPORT_LOGS__UPTO_LOGLEVEL = "only-log-level";
   public static final String EXPORT_LOGS__UPTO_LOGLEVEL__HELP =
       "Whether to only include those entries that exactly match the --log-level specified.";
@@ -1393,7 +1413,7 @@ public class CliStrings {
       "Log entries that occurred before this time will be exported. The default is no limit. Format: yyyy/MM/dd/HH/mm/ss/SSS/z OR yyyy/MM/dd";
   public static final String EXPORT_LOGS__MERGELOG = "merge-log";
   public static final String EXPORT_LOGS__MERGELOG__HELP =
-      "Whether to merge logs after exporting to the target directory.";
+      "Whether to merge logs after exporting to the target directory. Deprecated: Since Geode1.2, no longer used.";
   public static final String EXPORT_LOGS__MSG__CANNOT_MERGE =
       "Could not merge the files in target directory";
   public static final String EXPORT_LOGS__MSG__SPECIFY_ONE_OF_OPTION =
@@ -1410,6 +1430,16 @@ public class CliStrings {
       "Groups specified have no members";
   public static final String EXPORT_LOGS__MSG__FAILED_TO_EXPORT_LOG_FILES_FOR_MEMBER_0 =
       "Could not export log files for member {0}";
+  public static final String EXPORT_LOGS__LOGSONLY = "logs-only";
+  public static final String EXPORT_LOGS__STATSONLY = "stats-only";
+  public static final String EXPORT_LOGS__LOGSONLY__HELP = "Whether to only export logs";
+  public static final String EXPORT_LOGS__STATSONLY__HELP = "Whether to only export statistics";
+  public static final String EXPORT_LOGS__FILESIZELIMIT = "file-size-limit";
+  public static final String EXPORT_LOGS__FILESIZELIMIT__HELP =
+      "Limits size of the file that can be exported. Specify zero for no limit. Value is in megabytes by default or [m|g|t] may be specified.";
+  public static final String EXPORT_LOGS__FILESIZELIMIT__SPECIFIED_DEFAULT = "0";
+  public static final String EXPORT_LOGS__FILESIZELIMIT__UNSPECIFIED_DEFAULT = "100m";
+
 
   /* export stack-trace command */
   public static final String EXPORT_STACKTRACE = "export stack-traces";
@@ -1542,6 +1572,9 @@ public class CliStrings {
   public static final String IMPORT_DATA__REGION__NOT__FOUND = "Region {0} not found.";
   public static final String IMPORT_DATA__SUCCESS__MESSAGE =
       "Data imported from file : {0} on host : {1} to region : {2}";
+  public static final String IMPORT_DATA__INVOKE_CALLBACKS = "invoke-callbacks";
+  public static final String IMPORT_DATA__INVOKE_CALLBACKS__HELP =
+      "Whether callbacks should be invoked";
 
   /* 'list async-event-queues' command */
   public static final String LIST_ASYNC_EVENT_QUEUES = "list async-event-queues";
@@ -1888,7 +1921,7 @@ public class CliStrings {
   public static final String REMOVE__ALL__HELP =
       "Clears the region by removing all entries. Partitioned region does not support remove-all";
   public static final String REMOVE__MSG__REGIONNAME_EMPTY = "Region name is either empty or Null";
-  public static final String REMOVE__MSG__KEY_EMPTY = "Key is either empty or Null";
+  public static final String REMOVE__MSG__KEY_EMPTY = "Key is Null";
   public static final String REMOVE__MSG__VALUE_EMPTY = "Value is either empty or Null";
   public static final String REMOVE__MSG__REGION_NOT_FOUND_ON_ALL_MEMBERS =
       "Region <{0}> not found in any of the members";
@@ -2392,10 +2425,16 @@ public class CliStrings {
   public static final String START_LOCATOR__LOAD__SHARED_CONFIGURATION__FROM__FILESYSTEM__HELP =
       "When \" " + START_LOCATOR__LOAD__SHARED_CONFIGURATION__FROM__FILESYSTEM
           + " \" is set to true, the locator loads the cluster configuration from the \""
-          + SharedConfiguration.CLUSTER_CONFIG_ARTIFACTS_DIR_NAME + "\" directory.";
+          + ClusterConfigurationService.CLUSTER_CONFIG_ARTIFACTS_DIR_NAME + "\" directory.";
   public static final String START_LOCATOR__CLUSTER__CONFIG__DIR = "cluster-config-dir";
   public static final String START_LOCATOR__CLUSTER__CONFIG__DIR__HELP =
       "Directory used by the cluster configuration service to store the cluster configuration on the filesystem";
+  public static final String START_LOCATOR__HTTP_SERVICE_PORT = "http-service-port";
+  public static final String START_LOCATOR__HTTP_SERVICE_PORT__HELP =
+      "Port on which HTTP Service will listen on";
+  public static final String START_LOCATOR__HTTP_SERVICE_BIND_ADDRESS = "http-service-bind-address";
+  public static final String START_LOCATOR__HTTP_SERVICE_BIND_ADDRESS__HELP =
+      "The IP address on which the HTTP Service will be bound.  By default, the Server is bound to all local addresses.";
 
   /* 'start manager' command */
   public static final String START_MANAGER = "start manager";
@@ -2691,7 +2730,8 @@ public class CliStrings {
   public static final String STATUS_LOCATOR__MEMBER__HELP =
       "Member name or ID of the Locator in the Geode cluster.";
   public static final String STATUS_LOCATOR__PID = "pid";
-  public static final String STATUS_LOCATOR__PID__HELP = "Process ID (PID) of the running Locator.";
+  public static final String STATUS_LOCATOR__PID__HELP =
+      "Process ID (PID) of the running Locator. Deprecated: Since Geode1.2. Requires the JDK tools.jar which is not included on the classpath by default. Use --dir instead.";
   public static final String STATUS_LOCATOR__PORT = "port";
   public static final String STATUS_LOCATOR__PORT__HELP =
       "Port on which the Locator is listening. The default is 10334.";
@@ -2715,7 +2755,7 @@ public class CliStrings {
       "No Geode Cache Server with member name or ID {0} could be found.";
   public static final String STATUS_SERVER__PID = "pid";
   public static final String STATUS_SERVER__PID__HELP =
-      "Process ID (PID) of the running Geode Cache Server.";
+      "Process ID (PID) of the running Geode Cache Server. Deprecated: Since Geode1.2. Requires the JDK tools.jar which is not included on the classpath by default. Use --dir instead.";
 
   /* stop gateway-reciver */
   public static final String STOP_GATEWAYRECEIVER = "stop gateway-receiver";
@@ -2752,7 +2792,7 @@ public class CliStrings {
       "Member name or ID of the Locator in the Geode cluster.";
   public static final String STOP_LOCATOR__PID = "pid";
   public static final String STOP_LOCATOR__PID__HELP =
-      "The process id (PID) of the running Locator.";
+      "The process id (PID) of the running Locator. Deprecated: Since Geode1.2. Requires the JDK tools.jar which is not included on the classpath by default. Use --dir instead.";
   public static final String STOP_LOCATOR__GENERAL_ERROR_MESSAGE =
       "An error occurred while attempting to stop a Locator: %1$s";
   public static final String STOP_LOCATOR__LOCATOR_IS_CACHE_SERVER_ERROR_MESSAGE =
@@ -2783,7 +2823,7 @@ public class CliStrings {
       "No Cache Server with member name or ID {0} could be found.";
   public static final String STOP_SERVER__PID = "pid";
   public static final String STOP_SERVER__PID__HELP =
-      "Process ID (PID) of the running Geode Cache Server.";
+      "Process ID (PID) of the running Geode Cache Server. Deprecated: Since Geode1.2. Requires the JDK tools.jar which is not included on the classpath by default. Use --dir instead.";
   public static final String STOP_SERVER__SHUTDOWN_MEMBER_MESSAGE =
       "Cache Server {0} has been requested to stop.";
   public static final String STOP_SERVER__STOPPING_SERVER_MESSAGE =
@@ -3049,16 +3089,13 @@ public class CliStrings {
   /***
    * Cluster Configuration commands
    */
-
+  // TODO: Jared - clean up messages
   public static final String EXPORT_SHARED_CONFIG = "export cluster-configuration";
   public static final String EXPORT_SHARED_CONFIG__HELP =
       "Exports the cluster configuration artifacts as a zip file.";
-  public static final String EXPORT_SHARED_CONFIG__DIR = "dir";
-  public static final String EXPORT_SHARED_CONFIG__DIR__HELP =
-      "The directory in which the exported cluster configuration artifacts will be saved";
   public static final String EXPORT_SHARED_CONFIG__FILE = "zip-file-name";
   public static final String EXPORT_SHARED_CONFIG__FILE__HELP =
-      "Name of the zip file containing the exported cluster configuration artifacts";
+      "Path to the zip file containing the exported cluster configuration artifacts";
   public static final String EXPORT_SHARED_CONFIG__MSG__NOT_A_DIRECTORY = "{0} is not a directory.";
   public static final String EXPORT_SHARED_CONFIG__MSG__CANNOT_CREATE_DIR =
       "Directory {0} could not be created.";

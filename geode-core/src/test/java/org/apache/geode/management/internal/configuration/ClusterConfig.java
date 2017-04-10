@@ -21,16 +21,17 @@ import static org.apache.geode.distributed.ConfigurationProperties.LOG_FILE_SIZE
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.apache.geode.cache.Cache;
+import org.apache.geode.distributed.internal.ClusterConfigurationService;
 import org.apache.geode.distributed.internal.InternalLocator;
-import org.apache.geode.distributed.internal.SharedConfiguration;
 import org.apache.geode.internal.ClassPathLoader;
 import org.apache.geode.internal.JarClassLoader;
 import org.apache.geode.internal.JarDeployer;
+import org.apache.geode.internal.cache.GemFireCacheImpl;
 import org.apache.geode.internal.lang.StringUtils;
 import org.apache.geode.management.internal.configuration.domain.Configuration;
 import org.apache.geode.test.dunit.rules.Locator;
 import org.apache.geode.test.dunit.rules.LocatorServerStartupRule;
-import org.apache.geode.test.dunit.rules.Member;
+import org.apache.geode.test.dunit.rules.MemberVM;
 import org.apache.geode.test.dunit.rules.Server;
 
 import java.io.File;
@@ -39,6 +40,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
@@ -75,39 +77,50 @@ public class ClusterConfig implements Serializable {
     return Collections.unmodifiableList(groups);
   }
 
-  public void verify(Locator locator) {
-    verifyLocator(locator);
+
+  public void verify(MemberVM memberVM) throws ClassNotFoundException {
+    if (memberVM.isLocator())
+      verifyLocator(memberVM);
+    else
+      verifyServer(memberVM);
   }
 
-  public void verify(Server server) throws ClassNotFoundException {
-    verifyServer(server);
-  }
-
-  public void verifyLocator(Member locator) {
+  public void verifyLocator(MemberVM<Locator> locatorVM) {
     Set<String> expectedGroupConfigs =
         this.getGroups().stream().map(ConfigGroup::getName).collect(Collectors.toSet());
 
     // verify info exists in memeory
-    locator.invoke(() -> {
-      InternalLocator internalLocator = LocatorServerStartupRule.locatorStarter.locator;
-      SharedConfiguration sc = internalLocator.getSharedConfiguration();
+    locatorVM.invoke(() -> {
+      InternalLocator internalLocator = LocatorServerStartupRule.locatorStarter.getLocator();
+      ClusterConfigurationService sc = internalLocator.getSharedConfiguration();
 
       // verify no extra configs exist in memory
       Set<String> actualGroupConfigs = sc.getEntireConfiguration().keySet();
       assertThat(actualGroupConfigs).isEqualTo(expectedGroupConfigs);
 
-      // verify jars are as expected
       for (ConfigGroup configGroup : this.getGroups()) {
+        // verify jars are as expected
         Configuration config = sc.getConfiguration(configGroup.name);
         assertThat(config.getJarNames()).isEqualTo(configGroup.getJars());
+
+        // verify proeprty is as expected
+        if (!StringUtils.isBlank(configGroup.getMaxLogFileSize())) {
+          Properties props = config.getGemfireProperties();
+          assertThat(props.getProperty(LOG_FILE_SIZE_LIMIT))
+              .isEqualTo(configGroup.getMaxLogFileSize());
+        }
+
+        // verify region is in the region xml
+        for (String regionName : configGroup.getRegions()) {
+          String regionXml = "<region name=\"" + regionName + "\"";
+          assertThat(config.getCacheXmlContent()).contains(regionXml);
+        }
       }
 
-      // TODO: assert that groupConfig.getXml() contains expected region names
+
     });
 
-    File clusterConfigDir = new File(locator.getWorkingDir(), "/cluster_config");
-    Set<String> actualGroupDirs = toSetIgnoringHiddenFiles(clusterConfigDir.list());
-    assertThat(actualGroupDirs).isEqualTo(expectedGroupConfigs);
+    File clusterConfigDir = new File(locatorVM.getWorkingDir(), "/cluster_config");
 
     for (ConfigGroup configGroup : this.getGroups()) {
       Set<String> actualFiles =
@@ -118,17 +131,17 @@ public class ClusterConfig implements Serializable {
     }
   }
 
-  public void verifyServer(Member server) throws ClassNotFoundException {
+  public void verifyServer(MemberVM<Server> serverVM) throws ClassNotFoundException {
     // verify files exist in filesystem
     Set<String> expectedJarNames = this.getJarNames().stream().map(ClusterConfig::getServerJarName)
         .collect(Collectors.toSet());
     Set<String> actualJarNames = toSetIgnoringHiddenFiles(
-        server.getWorkingDir().list((dir, filename) -> filename.contains(".jar")));
+        serverVM.getWorkingDir().list((dir, filename) -> filename.contains(".jar")));
     assertThat(actualJarNames).isEqualTo(expectedJarNames);
 
     // verify config exists in memory
-    server.invoke(() -> {
-      Cache cache = LocatorServerStartupRule.serverStarter.cache;
+    serverVM.invoke(() -> {
+      Cache cache = GemFireCacheImpl.getInstance();
 
       // TODO: set compare to fail if there are extra regions
       for (String region : this.getRegions()) {
@@ -143,7 +156,7 @@ public class ClusterConfig implements Serializable {
       for (String jar : this.getJarNames()) {
         JarClassLoader jarClassLoader = findJarClassLoader(jar);
         assertThat(jarClassLoader).isNotNull();
-        assertThat(jarClassLoader.loadClass(nameOfClassContainedInJar(jar))).isNotNull();
+        assertThat(Class.forName(nameOfClassContainedInJar(jar), true, jarClassLoader)).isNotNull();
       }
     });
   }
@@ -162,6 +175,9 @@ public class ClusterConfig implements Serializable {
 
 
   private static Set<String> toSetIgnoringHiddenFiles(String[] array) {
+    if (array == null) {
+      return new HashSet<>();
+    }
     return Arrays.stream(array).filter((String name) -> !name.startsWith("."))
         .collect(Collectors.toSet());
   }

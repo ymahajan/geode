@@ -29,7 +29,7 @@ sourceSets {
 
 dependencies {
   compile 'org.springframework:spring-beans:' + project.'springframework.version'
-  
+
   compile 'commons-beanutils:commons-beanutils:' + project.'commons-beanutils.version'
   compile 'commons-collections:commons-collections:' + project.'commons-collections.version'
   compile 'commons-digester:commons-digester:' + project.'commons-digester.version'
@@ -82,6 +82,7 @@ dependencies {
   testCompile 'org.powermock:powermock-core:' + project.'powermock.version'
   testCompile 'org.powermock:powermock-module-junit4:' + project.'powermock.version'
   testCompile 'org.powermock:powermock-api-mockito:' + project.'powermock.version'
+  testCompile 'com.tdunning:json:' + project.'open-json.version'
 
   testRuntime 'com.google.code.gson:gson:' + project.'google-gson.version'
   testRuntime 'org.apache.commons:commons-exec:' + project.'commons-exec.version'

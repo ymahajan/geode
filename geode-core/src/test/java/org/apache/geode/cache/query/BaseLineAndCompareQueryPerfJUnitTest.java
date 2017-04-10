@@ -29,15 +29,18 @@ import org.apache.geode.test.junit.categories.IntegrationTest;
 import java.util.*;
 import java.io.*;
 
+import org.apache.geode.test.junit.categories.PerformanceTest;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 /**
  * This test is to baseline and compare the performance figures for index usage benchmarks.
  */
-@Category(IntegrationTest.class)
+@Category(PerformanceTest.class)
+@Ignore("Performance tests should not be run as part of precheckin")
 public class BaseLineAndCompareQueryPerfJUnitTest {
 
   /** Creates a new instance of BaseLineAndCompareQueryPerfJUnitTest */
@@ -315,7 +318,7 @@ public class BaseLineAndCompareQueryPerfJUnitTest {
       /*
        * ds = DistributedSystem.connect(props); cache = CacheFactory.create(ds); AttributesFactory
        * factory = new AttributesFactory(); factory.setScope(Scope.DISTRIBUTED_ACK);
-       * factory.setValueConstraint(Country.class); region = cache.createRegion("Countries",
+       * factory.setValueConstraint(Country.class); region = cache.withRegion("Countries",
        * factory.create());
        */
       region = CacheUtils.createRegion("Countries", Country.class);
@@ -328,7 +331,7 @@ public class BaseLineAndCompareQueryPerfJUnitTest {
       e.printStackTrace();
     }
 
-  }// end of createRegion
+  }// end of withRegion
 
   public static void populateData() throws Exception {
     /*

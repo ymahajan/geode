@@ -17,17 +17,12 @@
 
 package org.apache.geode.tools.pulse.internal.controllers;
 
-import java.io.IOException;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.List;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.commons.lang.StringEscapeUtils;
+import org.apache.commons.lang.StringUtils;
 import org.apache.geode.tools.pulse.internal.data.Cluster;
 import org.apache.geode.tools.pulse.internal.data.PulseConstants;
 import org.apache.geode.tools.pulse.internal.data.PulseVersion;
@@ -36,13 +31,17 @@ import org.apache.geode.tools.pulse.internal.log.PulseLogWriter;
 import org.apache.geode.tools.pulse.internal.service.PulseService;
 import org.apache.geode.tools.pulse.internal.service.PulseServiceFactory;
 import org.apache.geode.tools.pulse.internal.service.SystemAlertsService;
-import org.apache.geode.tools.pulse.internal.util.StringUtils;
-
-import org.apache.commons.lang.StringEscapeUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+
+import java.io.IOException;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /**
  * Class PulseController
@@ -90,6 +89,7 @@ public class PulseController {
     ObjectNode responseMap = mapper.createObjectNode();
 
     JsonNode requestMap = null;
+
 
     try {
       requestMap = mapper.readTree(pulseData);
@@ -348,7 +348,7 @@ public class PulseController {
     ObjectNode queryResult = mapper.createObjectNode();
     try {
 
-      if (StringUtils.isNotNullNotEmptyNotWhiteSpace(query)) {
+      if (StringUtils.isNotBlank(query)) {
         // get cluster object
         Cluster cluster = Repository.get().getCluster();
         String userName = request.getUserPrincipal().getName();
@@ -386,13 +386,13 @@ public class PulseController {
 
       // get query string
       action = request.getParameter(QUERYSTRING_PARAM_ACTION);
-      if (!StringUtils.isNotNullNotEmptyNotWhiteSpace(action)) {
+      if (StringUtils.isBlank(action)) {
         action = ACTION_VIEW;
       }
 
       if (action.toLowerCase().equalsIgnoreCase(ACTION_DELETE)) {
         String queryId = request.getParameter(QUERYSTRING_PARAM_QUERYID);
-        if (StringUtils.isNotNullNotEmptyNotWhiteSpace(queryId)) {
+        if (StringUtils.isNotBlank(queryId)) {
 
           boolean deleteStatus = cluster.deleteQueryById(userName, queryId);
           if (deleteStatus) {
@@ -416,46 +416,55 @@ public class PulseController {
       }
     }
     response.getOutputStream().write(responseJSON.toString().getBytes());
+
+
   }
 
-  @RequestMapping(value = "/dataBrowserExport", method = RequestMethod.POST)
+
+  @RequestMapping(value = "/dataBrowserExport", method = RequestMethod.GET)
   public void dataBrowserExport(HttpServletRequest request, HttpServletResponse response)
       throws IOException {
-
     // get query string
-    String filename = request.getParameter("filename");
-    String resultContent = request.getParameter("content");
-
-    response.setHeader("Cache-Control", "");
-    response.setHeader("Content-type", "text/plain");
-    if (StringUtils.isNotNullNotEmptyNotWhiteSpace(filename)) {
-      response.setHeader("Content-Disposition", "attachment; filename=" + filename);
-    } else {
-      response.setHeader("Content-Disposition", "attachment; filename=" + DEFAULT_EXPORT_FILENAME);
-    }
-
-    if (!StringUtils.isNotNullNotEmptyNotWhiteSpace(resultContent)) {
-      resultContent = "";
-    }
-
-    response.getOutputStream().write(resultContent.getBytes());
-  }
-
-  @RequestMapping(value = "/pulseProductSupport", method = RequestMethod.GET)
-  public void getConfiguredPulseProduct(HttpServletRequest request, HttpServletResponse response)
-      throws IOException {
-    ObjectNode responseJSON = mapper.createObjectNode();
+    String query = request.getParameter("query");
+    String members = request.getParameter("members");
+    int limit = 0;
 
     try {
-      responseJSON.put("product", pulseProductSupport);
-
-      // Send json response
-      response.getOutputStream().write(responseJSON.toString().getBytes());
-    } catch (Exception e) {
-      if (LOGGER.fineEnabled()) {
-        LOGGER.fine("Exception Occurred : " + e.getMessage());
+      limit = Integer.valueOf(request.getParameter("limit"));
+    } catch (NumberFormatException e) {
+      limit = 0;
+      if (LOGGER.finerEnabled()) {
+        LOGGER.finer(e.getMessage());
       }
     }
+
+    ObjectNode queryResult = mapper.createObjectNode();
+    try {
+
+      if (StringUtils.isNotBlank(query)) {
+        // get cluster object
+        Cluster cluster = Repository.get().getCluster();
+        String userName = request.getUserPrincipal().getName();
+
+        // Call execute query method
+        queryResult = cluster.executeQuery(query, members, limit);
+
+        // Add query in history if query is executed successfully
+        if (!queryResult.has("error")) {
+          // Add html escaped query to history
+          String escapedQuery = StringEscapeUtils.escapeHtml(query);
+          cluster.addQueryInHistory(escapedQuery, userName);
+        }
+      }
+    } catch (Exception e) {
+      if (LOGGER.fineEnabled()) {
+        LOGGER.fine("Exception Occured : " + e.getMessage());
+      }
+    }
+
+    response.setContentType("application/json");
+    response.setHeader("Content-Disposition", "attachment; filename=results.json");
+    response.getOutputStream().write(queryResult.toString().getBytes());
   }
 
   @RequestMapping(value = "/getQueryStatisticsGridModel", method = RequestMethod.GET)
@@ -500,19 +509,5 @@ public class PulseController {
         LOGGER.fine("Exception Occured : " + e.getMessage());
       }
     }
-  }
-
-  /**
-   * @return the pulseProductSupport
-   */
-  public static String getPulseProductSupport() {
-    return pulseProductSupport;
-  }
-
-  /**
-   * @param pulseProductSupport the pulseProductSupport to set
-   */
-  public static void setPulseProductSupport(String pulseProductSupport) {
-    PulseController.pulseProductSupport = pulseProductSupport;
   }
 }

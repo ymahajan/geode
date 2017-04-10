@@ -600,7 +600,8 @@ public class PartitionedRegion extends LocalRegion
 
   private byte fixedPASet;
 
-  public List<PartitionedRegion> colocatedByList = new CopyOnWriteArrayList<PartitionedRegion>();
+  private final List<PartitionedRegion> colocatedByList =
+      new CopyOnWriteArrayList<PartitionedRegion>();
 
   private final PartitionListener[] partitionListeners;
 
@@ -670,9 +671,7 @@ public class PartitionedRegion extends LocalRegion
     this.colocatedWithRegion = ColocationHelper.getColocatedRegion(this);
 
     if (colocatedWithRegion != null) {
-      synchronized (colocatedWithRegion.colocatedByList) {
-        colocatedWithRegion.colocatedByList.add(this);
-      }
+      colocatedWithRegion.getColocatedByList().add(this);
     }
 
     if (colocatedWithRegion != null && !internalRegionArgs.isUsedForParallelGatewaySenderQueue()) {
@@ -786,7 +785,7 @@ public class PartitionedRegion extends LocalRegion
     return parallelGatewaySenderIds;
   }
 
-  List<PartitionedRegion> getColocatedByList() {
+  public List<PartitionedRegion> getColocatedByList() {
     return this.colocatedByList;
   }
 
@@ -1137,8 +1136,8 @@ public class PartitionedRegion extends LocalRegion
                   new Object[] {this.getName(), senderIds.get(0), senderIds.get(1)}));
     }
 
-    List asycnQueueIds =
-        this.getCacheDistributionAdvisor().adviseSameAsyncEventQueueIds(getAsyncEventQueueIds());
+    List asycnQueueIds = this.getCacheDistributionAdvisor()
+        .adviseSameAsyncEventQueueIds(getVisibleAsyncEventQueueIds());
     if (!asycnQueueIds.isEmpty()) {
       throw new GatewaySenderConfigurationException(
           LocalizedStrings.Region_REGION_0_HAS_1_ASYNC_EVENT_QUEUE_IDS_ANOTHER_CACHE_HAS_THE_SAME_REGION_WITH_2_ASYNC_EVENT_QUEUE_IDS_FOR_REGION_ACROSS_ALL_MEMBERS_IN_DS_ASYNC_EVENT_QUEUE_IDS_SHOULD_BE_SAME
@@ -5064,7 +5063,7 @@ public class PartitionedRegion extends LocalRegion
     profile.hasCacheServer = ((this.cache.getCacheServers().size() > 0) ? true : false);
     profile.filterProfile = getFilterProfile();
     profile.gatewaySenderIds = getGatewaySenderIds();
-    profile.asyncEventQueueIds = getAsyncEventQueueIds();
+    profile.asyncEventQueueIds = getVisibleAsyncEventQueueIds();
 
     if (dataPolicy.withPersistence()) {
       profile.persistentID = getDiskStore().generatePersistentID(null);
@@ -6099,6 +6098,10 @@ public class PartitionedRegion extends LocalRegion
     return Collections.unmodifiableSet(new PREntriesSet());
   }
 
+  public Set<Region.Entry> entries(Set<Integer> bucketIds) {
+    return new PREntriesSet(bucketIds);
+  }
+
   /**
    * Set view of entries. This currently extends the keySet iterator and performs individual
    * getEntry() operations using the keys
@@ -6162,6 +6165,13 @@ public class PartitionedRegion extends LocalRegion
   public Set keySet(boolean allowTombstones) {
     checkReadiness();
     return Collections.unmodifiableSet(new KeysSet(allowTombstones));
+  }
+
+  /**
+   * Get a keyset of the given buckets
+   */
+  public Set keySet(Set<Integer> bucketSet) {
+    return new KeysSet(bucketSet);
   }
 
   public Set keysWithoutCreatesForTests() {
@@ -7911,6 +7921,9 @@ public class PartitionedRegion extends LocalRegion
         }
       }
     }
+    if (colocatedWithRegion != null) {
+      colocatedWithRegion.getColocatedByList().remove(this);
+    }
 
     RegionLogger.logDestroy(getName(), cache.getMyId(), null, op.isClose());
   }
@@ -8762,15 +8775,7 @@ public class PartitionedRegion extends LocalRegion
 
     // If exception is throw in any of the above steps
     if (throwException) {
-      try {
-        for (String indexName : exceptionsMap.keySet()) {
-          Index index = indexManager.getIndex(indexName);
-          indexManager.removeIndex(index);
-          removeIndex(index, remotelyOriginated);
-        }
-      } finally {
-        throw new MultiIndexCreationException(exceptionsMap);
-      }
+      throw new MultiIndexCreationException(exceptionsMap);
     }
 
     // set the populate flag for all the created PR indexes

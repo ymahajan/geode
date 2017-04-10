@@ -92,8 +92,6 @@ public abstract class DiskId {
    */
   abstract void setOffsetInOplog(long offsetInOplog);
 
-  abstract boolean isKeyIdNegative();
-
   abstract void markForWriting();
 
   abstract void unmarkForWriting();
@@ -409,11 +407,6 @@ public abstract class DiskId {
     }
 
     @Override
-    boolean isKeyIdNegative() {
-      return false;
-    }
-
-    @Override
     void markForWriting() {
       this.valueLength |= 0x80000000;
     }
@@ -483,11 +476,6 @@ public abstract class DiskId {
     }
 
     @Override
-    boolean isKeyIdNegative() {
-      return false;
-    }
-
-    @Override
     void markForWriting() {
       this.valueLength |= 0x80000000;
     }
@@ -552,30 +540,18 @@ public abstract class DiskId {
     }
 
     @Override
-    boolean isKeyIdNegative() {
-      return this.keyId < 0;
-    }
-
-    @Override
     void markForWriting() {
-      if (this.keyId > DiskRegion.INVALID_ID) {
-        // Mark the id as needing to be written
-        // The disk remove that this section used to do caused bug 30961
-        this.setKeyId(-this.keyId);
-      }
+      throw new IllegalStateException("Should not be used for persistent region");
     }
 
     @Override
     void unmarkForWriting() {
-      if (this.keyId < DiskRegion.INVALID_ID) {
-        // Mark the id as NOT needing to be written
-        this.setKeyId(-this.keyId);
-      }
+      // Do nothing
     }
 
     @Override
     boolean needsToBeWritten() {
-      return this.keyId <= DiskRegion.INVALID_ID;
+      return false;
     }
 
     @Override
@@ -637,25 +613,13 @@ public abstract class DiskId {
     }
 
     @Override
-    boolean isKeyIdNegative() {
-      return this.keyId < 0;
-    }
-
-    @Override
     void markForWriting() {
-      if (this.keyId > DiskRegion.INVALID_ID) {
-        // Mark the id as needing to be written
-        // The disk remove that this section used to do caused bug 30961
-        this.setKeyId(-this.keyId);
-      }
+      throw new IllegalStateException("Should not be used for persistent region");
     }
 
     @Override
     void unmarkForWriting() {
-      if (this.keyId < DiskRegion.INVALID_ID) {
-        // Mark the id as NOT needing to be written
-        this.setKeyId(-this.keyId);
-      }
+      // Do nothing
     }
 
     @Override
@@ -670,7 +634,7 @@ public abstract class DiskId {
 
     @Override
     boolean needsToBeWritten() {
-      return this.keyId <= DiskRegion.INVALID_ID;
+      return false;
     }
   }
   final protected static class PersistenceWithLongOffset extends PersistenceWithLongOffsetNoLL {

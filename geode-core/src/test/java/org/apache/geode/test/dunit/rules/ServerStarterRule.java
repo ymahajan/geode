@@ -15,20 +15,21 @@
 
 package org.apache.geode.test.dunit.rules;
 
-import static org.apache.geode.distributed.ConfigurationProperties.JMX_MANAGER;
-import static org.apache.geode.distributed.ConfigurationProperties.JMX_MANAGER_PORT;
-import static org.apache.geode.distributed.ConfigurationProperties.JMX_MANAGER_START;
-import static org.apache.geode.distributed.ConfigurationProperties.LOCATORS;
-import static org.apache.geode.distributed.ConfigurationProperties.MCAST_PORT;
-import static org.apache.geode.distributed.ConfigurationProperties.NAME;
+import static org.apache.geode.distributed.ConfigurationProperties.HTTP_SERVICE_BIND_ADDRESS;
+import static org.apache.geode.distributed.ConfigurationProperties.HTTP_SERVICE_PORT;
+import static org.apache.geode.distributed.ConfigurationProperties.START_DEV_REST_API;
 
 import org.apache.geode.cache.Cache;
 import org.apache.geode.cache.CacheFactory;
+import org.apache.geode.cache.RegionShortcut;
 import org.apache.geode.cache.server.CacheServer;
+import org.apache.geode.distributed.internal.DistributionConfig;
+import org.apache.geode.distributed.internal.InternalDistributedSystem;
+import org.apache.geode.internal.AvailablePortHelper;
 import org.apache.geode.internal.cache.GemFireCacheImpl;
-import org.junit.rules.ExternalResource;
 
-import java.io.Serializable;
+import java.io.File;
+import java.io.IOException;
 import java.util.Properties;
 
 
@@ -37,75 +38,42 @@ import java.util.Properties;
  *
  * If you need a rule to start a server/locator in different VMs for Distributed tests, You should
  * use {@link LocatorServerStartupRule}.
- * <p>
- * You may choose to use this class not as a rule or use it in your own rule (see
- * {@link LocatorServerStartupRule}), in which case you will need to call startLocator() and after()
- * manually.
- * </p>
  */
-public class ServerStarterRule extends ExternalResource implements Serializable {
+public class ServerStarterRule extends MemberStarterRule<ServerStarterRule> implements Server {
 
-  public Cache cache;
-  public CacheServer server;
-
-  private Properties properties;
-
-  public ServerStarterRule(Properties properties) {
-    this.properties = properties;
-  }
-
-  public void startServer() throws Exception {
-    startServer(0, false);
-  }
-
-  public void startServer(int locatorPort) throws Exception {
-    startServer(locatorPort, false);
-  }
-
-  public void startServer(int locatorPort, boolean pdxPersistent) throws Exception {
-    if (!properties.containsKey(MCAST_PORT)) {
-      properties.setProperty(MCAST_PORT, "0");
-    }
-    if (!properties.containsKey(NAME)) {
-      properties.setProperty(NAME, this.getClass().getName());
-    }
-    if (!properties.containsKey(LOCATORS)) {
-      if (locatorPort > 0) {
-        properties.setProperty(LOCATORS, "localhost[" + locatorPort + "]");
-      } else {
-        properties.setProperty(LOCATORS, "");
-      }
-    }
-    if (properties.containsKey(JMX_MANAGER_PORT)) {
-      int jmxPort = Integer.parseInt(properties.getProperty(JMX_MANAGER_PORT));
-      if (jmxPort > 0) {
-        if (!properties.containsKey(JMX_MANAGER))
-          properties.put(JMX_MANAGER, "true");
-        if (!properties.containsKey(JMX_MANAGER_START))
-          properties.put(JMX_MANAGER_START, "true");
-      }
-    }
-
-    CacheFactory cf = new CacheFactory(properties);
-    cf.setPdxReadSerialized(pdxPersistent);
-    cf.setPdxPersistent(pdxPersistent);
-    cache = cf.create();
-    server = cache.addCacheServer();
-    server.setPort(0);
-    server.start();
-  }
+  private transient Cache cache;
+  private transient CacheServer server;
+  private int embeddedLocatorPort = -1;
 
   /**
-   * if you use this class as a rule, the default startServer will be called in the before. You need
-   * to make sure your properties to start the server with has the locator information it needs to
-   * connect to, otherwise, this server won't connect to any locator
+   * Default constructor, if used, the rule will create a temporary folder as the server's working
+   * dir, and will delete it when the test is done.
    */
-  protected void before() throws Throwable {
-    startServer();
+  public ServerStarterRule() {}
+
+  /**
+   * if constructed this way, the rule won't be deleting the workingDir after the test is done. It's
+   * the caller's responsibility to delete it.
+   * 
+   * @param workingDir: the working dir this server should be writing the artifacts to.
+   */
+  public ServerStarterRule(File workingDir) {
+    super(workingDir);
+  }
+
+  public Cache getCache() {
+    return cache;
+  }
+
+  public CacheServer getServer() {
+    return server;
   }
 
   @Override
-  public void after() {
+  void stopMember() {
+    // make sure this cache is the one currently open. A server cache can be recreated due to
+    // importing a new set of cluster configuration.
+    cache = GemFireCacheImpl.getInstance();
     if (cache != null) {
       cache.close();
       cache = null;
@@ -115,4 +83,63 @@ public class ServerStarterRule extends ExternalResource implements Serializable 
       server = null;
     }
   }
+
+  public ServerStarterRule withEmbeddedLocator() {
+    embeddedLocatorPort = AvailablePortHelper.getRandomAvailableTCPPort();
+    properties.setProperty("start-locator", "localhost[" + embeddedLocatorPort + "]");
+    return this;
+  }
+
+  public ServerStarterRule withRestService() {
+    return withRestService(false);
+  }
+
+  public ServerStarterRule withRestService(boolean useDefaultPort) {
+    properties.setProperty(START_DEV_REST_API, "true");
+    properties.setProperty(HTTP_SERVICE_BIND_ADDRESS, "localhost");
+    if (!useDefaultPort) {
+      httpPort = AvailablePortHelper.getRandomAvailableTCPPort();
+      properties.setProperty(HTTP_SERVICE_PORT, httpPort + "");
+    }
+    return this;
+  }
+
+  public ServerStarterRule startServer() {
+    return startServer(false);
+  }
+
+  public ServerStarterRule createRegion(RegionShortcut type, String name) {
+    cache.createRegionFactory(type).create(name);
+    return this;
+  }
+
+  public ServerStarterRule startServer(Properties properties, int locatorPort) {
+    return withProperties(properties).withConnectionToLocator(locatorPort).startServer();
+  }
+
+  public ServerStarterRule startServer(boolean pdxPersistent) {
+    normalizeProperties();
+    CacheFactory cf = new CacheFactory(this.properties);
+    cf.setPdxReadSerialized(pdxPersistent);
+    cf.setPdxPersistent(pdxPersistent);
+    cache = cf.create();
+    DistributionConfig config =
+        ((InternalDistributedSystem) cache.getDistributedSystem()).getConfig();
+    server = cache.addCacheServer();
+    server.setPort(0);
+    try {
+      server.start();
+    } catch (IOException e) {
+      throw new RuntimeException("unable to start server", e);
+    }
+    memberPort = server.getPort();
+    jmxPort = config.getJmxManagerPort();
+    httpPort = config.getHttpServicePort();
+    return this;
+  }
+
+  public int getEmbeddedLocatorPort() {
+    return embeddedLocatorPort;
+  }
+
 }

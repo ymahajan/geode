@@ -160,7 +160,7 @@ public abstract class MultiVMRegionTestCase extends RegionTestCase {
    */
   @Test
   public void testConcurrentOperations() throws Exception {
-    SerializableRunnable createRegion = new CacheSerializableRunnable("createRegion") {
+    SerializableRunnable createRegion = new CacheSerializableRunnable("withRegion") {
 
       @Override
       public void run2() throws CacheException {
@@ -2696,7 +2696,7 @@ public abstract class MultiVMRegionTestCase extends RegionTestCase {
 
     } catch (Exception e) {
       CacheFactory.getInstance(getSystem()).close();
-      getSystem().getLogWriter().fine("testDistributedPut: Caused exception in createRegion");
+      getSystem().getLogWriter().fine("testDistributedPut: Caused exception in withRegion");
       throw e;
     }
 
@@ -2736,7 +2736,7 @@ public abstract class MultiVMRegionTestCase extends RegionTestCase {
   // new AttributesFactory(getRegionAttributes());
   // factory.setMirrorType(MirrorType.KEYS);
   // try {
-  // createRegion(name, factory.create());
+  // withRegion(name, factory.create());
   // if (persistBackup) fail("Should have thrown an IllegalStateException");
   // }
   // catch (IllegalStateException e) {
@@ -6252,7 +6252,7 @@ public abstract class MultiVMRegionTestCase extends RegionTestCase {
 
     } catch (Exception e) {
       CacheFactory.getInstance(getSystem()).close();
-      getSystem().getLogWriter().fine("testTXSimpleOps: Caused exception in createRegion");
+      getSystem().getLogWriter().fine("testTXSimpleOps: Caused exception in withRegion");
       throw e;
     }
 
@@ -6345,7 +6345,7 @@ public abstract class MultiVMRegionTestCase extends RegionTestCase {
         TXStateProxy tx = ((TXManagerImpl) txMgr).internalSuspend();
         assertTrue(rgn.containsKey("key"));
         assertEquals("LV 1", rgn.getEntry("key").getValue());
-        ((TXManagerImpl) txMgr).resume(tx);
+        ((TXManagerImpl) txMgr).internalResume(tx);
       }
       // make sure transactional view is still correct
       assertEquals("txValue", rgn.getEntry("key").getValue());
@@ -6394,7 +6394,7 @@ public abstract class MultiVMRegionTestCase extends RegionTestCase {
         // do a get outside of the transaction to force a net load
         Object v3 = rgn.get("key3");
         assertEquals("LV 3", v3);
-        ((TXManagerImpl) txMgr).resume(tx);
+        ((TXManagerImpl) txMgr).internalResume(tx);
       }
       // make sure transactional view is still correct
       assertEquals("txValue3", rgn.getEntry("key3").getValue());
@@ -6452,7 +6452,7 @@ public abstract class MultiVMRegionTestCase extends RegionTestCase {
         // do a get outside of the transaction to force a netsearch
         assertEquals("txValue", rgn.get("key")); // does a netsearch
         assertEquals("txValue", rgn.getEntry("key").getValue());
-        ((TXManagerImpl) txMgr).resume(tx);
+        ((TXManagerImpl) txMgr).internalResume(tx);
       }
       // make sure transactional view is still correct
       assertEquals("new txValue", rgn.getEntry("key").getValue());
@@ -6509,8 +6509,7 @@ public abstract class MultiVMRegionTestCase extends RegionTestCase {
       assertSame(localCmtValue, rgn.getEntry("key").getValue());
     } catch (Exception e) {
       CacheFactory.getInstance(getSystem()).close();
-      getSystem().getLogWriter()
-          .fine("testTXUpdateLoadNoConflict: Caused exception in createRegion");
+      getSystem().getLogWriter().fine("testTXUpdateLoadNoConflict: Caused exception in withRegion");
       throw e;
     }
   }
@@ -7268,7 +7267,7 @@ public abstract class MultiVMRegionTestCase extends RegionTestCase {
       rgn3.destroyRegion();
     } catch (Exception e) {
       CacheFactory.getInstance(getSystem()).close();
-      getSystem().getLogWriter().fine("testTXMultiRegion: Caused exception in createRegion");
+      getSystem().getLogWriter().fine("testTXMultiRegion: Caused exception in withRegion");
       throw e;
     }
   }
@@ -7406,7 +7405,7 @@ public abstract class MultiVMRegionTestCase extends RegionTestCase {
       // done in a tx is dropped in a remote mirror that does not have the entry.
     } catch (Exception e) {
       CacheFactory.getInstance(getSystem()).close();
-      getSystem().getLogWriter().fine("textTXRmtMirror: Caused exception in createRegion");
+      getSystem().getLogWriter().fine("textTXRmtMirror: Caused exception in withRegion");
       throw e;
     }
   }
@@ -7879,7 +7878,7 @@ public abstract class MultiVMRegionTestCase extends RegionTestCase {
 
     } catch (Exception e) {
       CacheFactory.getInstance(getSystem()).close();
-      getSystem().getLogWriter().fine("testTXAlgebra: Caused exception in createRegion");
+      getSystem().getLogWriter().fine("testTXAlgebra: Caused exception in withRegion");
       throw e;
     }
 

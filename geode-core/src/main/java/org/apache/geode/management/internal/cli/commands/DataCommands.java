@@ -793,7 +793,7 @@ public class DataCommands implements CommandMarker {
 
     if (!filePath.endsWith(CliStrings.GEODE_DATA_FILE_EXTENSION)) {
       return ResultBuilder.createUserErrorResult(CliStrings
-          .format(CliStrings.INVALID_FILE_EXTENTION, CliStrings.GEODE_DATA_FILE_EXTENSION));
+          .format(CliStrings.INVALID_FILE_EXTENSION, CliStrings.GEODE_DATA_FILE_EXTENSION));
     }
     try {
       if (targetMember != null) {
@@ -841,7 +841,10 @@ public class DataCommands implements CommandMarker {
       @CliOption(key = CliStrings.IMPORT_DATA__MEMBER, mandatory = true,
           unspecifiedDefaultValue = CliMetaData.ANNOTATION_NULL_VALUE,
           optionContext = ConverterHint.MEMBERIDNAME,
-          help = CliStrings.IMPORT_DATA__MEMBER__HELP) String memberNameOrId) {
+          help = CliStrings.IMPORT_DATA__MEMBER__HELP) String memberNameOrId,
+      @CliOption(key = CliStrings.IMPORT_DATA__INVOKE_CALLBACKS, mandatory = false,
+          unspecifiedDefaultValue = "false",
+          help = CliStrings.IMPORT_DATA__INVOKE_CALLBACKS__HELP) boolean invokeCallbacks) {
 
     this.securityService.authorizeRegionWrite(regionName);
 
@@ -853,10 +856,10 @@ public class DataCommands implements CommandMarker {
 
       if (!filePath.endsWith(CliStrings.GEODE_DATA_FILE_EXTENSION)) {
         return ResultBuilder.createUserErrorResult(CliStrings
-            .format(CliStrings.INVALID_FILE_EXTENTION, CliStrings.GEODE_DATA_FILE_EXTENSION));
+            .format(CliStrings.INVALID_FILE_EXTENSION, CliStrings.GEODE_DATA_FILE_EXTENSION));
       }
       if (targetMember != null) {
-        final String args[] = {regionName, filePath};
+        final Object args[] = {regionName, filePath, invokeCallbacks};
         ResultCollector<?, ?> rc = CliUtil.executeFunction(importDataFunction, args, targetMember);
         List<Object> results = (List<Object>) rc.getResult();
 
@@ -1093,7 +1096,7 @@ public class DataCommands implements CommandMarker {
           null, CliStrings.REMOVE__MSG__REGIONNAME_EMPTY, false));
     }
 
-    if (!removeAllKeys && (key == null || key.isEmpty())) {
+    if (!removeAllKeys && (key == null)) {
       return makePresentationResult(dataResult = DataCommandResult.createRemoveResult(key, null,
           null, CliStrings.REMOVE__MSG__KEY_EMPTY, false));
     }
@@ -1327,7 +1330,7 @@ public class DataCommands implements CommandMarker {
 
     // try with function calls
     if (matchedMembers.size() == 0) {
-      matchedMembers = CliUtil.getMembersForeRegionViaFunction(cache, region);
+      matchedMembers = CliUtil.getMembersForeRegionViaFunction(cache, region, true);
     }
     return matchedMembers;
   }

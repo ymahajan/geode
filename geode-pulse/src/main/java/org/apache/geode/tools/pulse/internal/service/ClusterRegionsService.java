@@ -20,22 +20,21 @@ package org.apache.geode.tools.pulse.internal.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.apache.geode.tools.pulse.internal.controllers.PulseController;
+import org.apache.commons.lang.StringUtils;
 import org.apache.geode.tools.pulse.internal.data.Cluster;
 import org.apache.geode.tools.pulse.internal.data.PulseConstants;
 import org.apache.geode.tools.pulse.internal.data.Repository;
-import org.apache.geode.tools.pulse.internal.util.StringUtils;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 
-import javax.servlet.http.HttpServletRequest;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import javax.servlet.http.HttpServletRequest;
 
 /**
  * Class ClusterRegionsService
@@ -154,21 +153,16 @@ public class ClusterRegionsService implements PulseService {
       }
 
       String regCompCodec = reg.getCompressionCodec();
-      if (StringUtils.isNotNullNotEmptyNotWhiteSpace(regCompCodec)) {
+      if (StringUtils.isNotBlank(regCompCodec)) {
         regionJSON.put("compressionCodec", reg.getCompressionCodec());
       } else {
         regionJSON.put("compressionCodec", this.VALUE_NA);
       }
 
-      if (PulseConstants.PRODUCT_NAME_SQLFIRE
-          .equalsIgnoreCase(PulseController.getPulseProductSupport())) {
-        // Convert region path to dot separated region path
-        regionJSON.put("regionPath", StringUtils.getTableNameFromRegionName(reg.getFullPath()));
-        regionJSON.put("id", StringUtils.getTableNameFromRegionName(reg.getFullPath()));
-      } else {
-        regionJSON.put("regionPath", reg.getFullPath());
-        regionJSON.put("id", reg.getFullPath());
-      }
+
+      regionJSON.put("regionPath", reg.getFullPath());
+      regionJSON.put("id", reg.getFullPath());
+
 
       regionJSON.put("memoryReadsTrend", mapper
           .valueToTree(reg.getRegionStatisticTrend(Cluster.Region.REGION_STAT_GETS_PER_SEC_TREND)));
@@ -184,7 +178,7 @@ public class ClusterRegionsService implements PulseService {
       String entrySizeInMB = form.format(entrySize / (1024f * 1024f));
 
       if (entrySize < 0) {
-        regionJSON.put(this.ENTRY_SIZE, this.VALUE_NA);
+        regionJSON.put(this.ENTRY_SIZE, VALUE_NA);
       } else {
         regionJSON.put(this.ENTRY_SIZE, entrySizeInMB);
       }

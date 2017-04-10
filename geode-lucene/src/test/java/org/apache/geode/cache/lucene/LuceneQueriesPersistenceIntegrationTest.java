@@ -18,6 +18,7 @@ import static org.apache.geode.cache.lucene.test.LuceneTestUtilities.*;
 import static org.junit.Assert.*;
 
 import java.io.File;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.geode.cache.EvictionAction;
 import org.apache.geode.cache.EvictionAlgorithm;
@@ -62,7 +63,7 @@ public class LuceneQueriesPersistenceIntegrationTest extends LuceneIntegrationTe
     String aeqId = LuceneServiceImpl.getUniqueIndexName(INDEX_NAME, REGION_NAME);
 
     LuceneService service = LuceneServiceProvider.get(cache);
-    service.createIndex(INDEX_NAME, REGION_NAME, Type1.fields);
+    service.createIndexFactory().setFields(Type1.fields).create(INDEX_NAME, REGION_NAME);
 
     RegionFactory<String, Type1> regionFactory =
         cache.createRegionFactory(RegionShortcut.PARTITION);
@@ -83,12 +84,10 @@ public class LuceneQueriesPersistenceIntegrationTest extends LuceneIntegrationTe
     value = new Type1("lucene world", 1, 2L, 3.0, 4.0f);
     userRegion.put("value3", value);
 
-    index.waitUntilFlushed(60000);
+    service.waitUntilFlushed(INDEX_NAME, REGION_NAME, 60000, TimeUnit.MILLISECONDS);
 
     PartitionedRegion fileRegion = (PartitionedRegion) cache.getRegion(aeqId + ".files");
     assertNotNull(fileRegion);
-    PartitionedRegion chunkRegion = (PartitionedRegion) cache.getRegion(aeqId + ".chunks");
-    assertNotNull(chunkRegion);
     Assert.assertTrue(0 < userRegion.getDiskRegionStats().getNumOverflowOnDisk());
 
     LuceneQuery<Integer, Type1> query = service.createLuceneQueryFactory().create(INDEX_NAME,

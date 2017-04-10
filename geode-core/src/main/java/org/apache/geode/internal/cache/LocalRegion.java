@@ -621,8 +621,9 @@ public class LocalRegion extends AbstractRegion implements LoaderHelperFactory,
     this.isUsedForParallelGatewaySenderQueue =
         internalRegionArgs.isUsedForParallelGatewaySenderQueue();
     this.serialGatewaySender = internalRegionArgs.getSerialGatewaySender();
-    this.cacheServiceProfiles = internalRegionArgs.getCacheServiceProfiles() == null ? null
-        : Collections.unmodifiableMap(internalRegionArgs.getCacheServiceProfiles());
+    this.cacheServiceProfiles =
+        internalRegionArgs.getCacheServiceProfiles() == null ? Collections.emptyMap()
+            : Collections.unmodifiableMap(internalRegionArgs.getCacheServiceProfiles());
 
     if (!isUsedForMetaRegion && !isUsedForPartitionedRegionAdmin
         && !isUsedForPartitionedRegionBucket && !isUsedForSerialGatewaySenderQueue
@@ -1019,7 +1020,7 @@ public class LocalRegion extends AbstractRegion implements LoaderHelperFactory,
     return newRegion;
   }
 
-  public final void create(Object key, Object value, Object aCallbackArgument)
+  public void create(Object key, Object value, Object aCallbackArgument)
       throws TimeoutException, EntryExistsException, CacheWriterException {
     long startPut = CachePerfStats.getStatTime();
     @Released
@@ -5907,8 +5908,15 @@ public class LocalRegion extends AbstractRegion implements LoaderHelperFactory,
         doCallback = true;
       }
       if (doCallback) {
-        notifyGatewaySender(event.getOperation().isUpdate() ? EnumListenerEvent.AFTER_UPDATE
-            : EnumListenerEvent.AFTER_CREATE, event);
+        if (event.isBulkOpInProgress() && this.isUsedForPartitionedRegionBucket) {
+          if (logger.isDebugEnabled()) {
+            logger.debug(
+                "For bulk operation on bucket region, not to notify gateway sender earlier.");
+          }
+        } else {
+          notifyGatewaySender(event.getOperation().isUpdate() ? EnumListenerEvent.AFTER_UPDATE
+              : EnumListenerEvent.AFTER_CREATE, event);
+        }
         // Notify listeners
         if (!event.isBulkOpInProgress()) {
           try {
@@ -6548,7 +6556,7 @@ public class LocalRegion extends AbstractRegion implements LoaderHelperFactory,
         }
       }
     } finally {
-      this.cache.getTXMgr().resume(tx);
+      this.cache.getTXMgr().internalResume(tx);
     }
   }
 
@@ -6967,7 +6975,13 @@ public class LocalRegion extends AbstractRegion implements LoaderHelperFactory,
      * throw new IndexMaintenanceException(e); } } }
      */
 
-    notifyGatewaySender(EnumListenerEvent.AFTER_DESTROY, event);
+    if (event.isBulkOpInProgress() && this.isUsedForPartitionedRegionBucket) {
+      if (logger.isDebugEnabled()) {
+        logger.debug("For bulk operation on bucket region, not to notify gateway sender earlier.");
+      }
+    } else {
+      notifyGatewaySender(EnumListenerEvent.AFTER_DESTROY, event);
+    }
 
     // invoke callbacks if initialized and told to do so, or if this
     // is a bucket in a partitioned region
@@ -7166,7 +7180,7 @@ public class LocalRegion extends AbstractRegion implements LoaderHelperFactory,
         dispatchListenerEvent(EnumListenerEvent.AFTER_REGION_INVALIDATE, event);
       }
     } finally {
-      this.cache.getTXMgr().resume(tx);
+      this.cache.getTXMgr().internalResume(tx);
     }
   }
 
@@ -9558,7 +9572,7 @@ public class LocalRegion extends AbstractRegion implements LoaderHelperFactory,
                       key);
                 }
               } finally {
-                this.cache.getTXMgr().resume(tx);
+                this.cache.getTXMgr().internalResume(tx);
               }
               getCachePerfStats().endPut(startPut, event.isOriginRemote());
             }
@@ -10405,10 +10419,12 @@ public class LocalRegion extends AbstractRegion implements LoaderHelperFactory,
         EnumListenerEvent op = event.getOperation().isCreate() ? EnumListenerEvent.AFTER_CREATE
             : EnumListenerEvent.AFTER_UPDATE;
         invokePutCallbacks(op, event, !event.callbacksInvoked() && !event.isPossibleDuplicate(),
-            false /*
-                   * We must notify gateways inside RegionEntry lock, NOT here, to preserve the
-                   * order of events sent by gateways for same key
-                   */);
+            this.isUsedForPartitionedRegionBucket
+        /*
+         * If this is replicated region, use "false". We must notify gateways inside RegionEntry
+         * lock, NOT here, to preserve the order of events sent by gateways for same key. If this is
+         * bucket region, use "true", because the event order is guaranteed
+         */);
       }
     }
   }
@@ -10432,10 +10448,12 @@ public class LocalRegion extends AbstractRegion implements LoaderHelperFactory,
       if (successfulKeys.contains(event.getKey())) {
         invokeDestroyCallbacks(EnumListenerEvent.AFTER_DESTROY, event,
             !event.callbacksInvoked() && !event.isPossibleDuplicate(),
-            false /*
-                   * We must notify gateways inside RegionEntry lock, NOT here, to preserve the
-                   * order of events sent by gateways for same key
-                   */);
+            this.isUsedForPartitionedRegionBucket
+        /*
+         * If this is replicated region, use "false". We must notify gateways inside RegionEntry
+         * lock, NOT here, to preserve the order of events sent by gateways for same key. If this is
+         * bucket region, use "true", because the event order is guaranteed
+         */);
       }
     }
   }
@@ -10694,6 +10712,10 @@ public class LocalRegion extends AbstractRegion implements LoaderHelperFactory,
 
   public CacheServiceProfile getCacheServiceProfile(String id) {
     return this.cacheServiceProfiles.get(id);
+  }
+
+  public Map<String, CacheServiceProfile> getCacheServiceProfiles() {
+    return Collections.unmodifiableMap(this.cacheServiceProfiles);
   }
 
   public LoaderHelper createLoaderHelper(Object key, Object callbackArgument,

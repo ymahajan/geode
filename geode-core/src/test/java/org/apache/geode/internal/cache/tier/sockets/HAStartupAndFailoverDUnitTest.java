@@ -22,7 +22,7 @@ import java.util.Iterator;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
-import com.jayway.awaitility.Awaitility;
+import org.awaitility.Awaitility;
 import org.apache.geode.test.junit.categories.ClientSubscriptionTest;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -361,7 +361,7 @@ public class HAStartupAndFailoverDUnitTest extends JUnit4DistributedTestCase {
   }
 
   // public static void processException() {
-  // assertIndexDetailsEquals(conn.getServer().getPort(), PORT1.intValue());
+  // assertIndexDetailsEquals(conn.getServer().getServerPort(), PORT1.intValue());
   // try {
   // pool.processException(new Exception("dummy"), conn);
   // //Thread.sleep(10000); // why sleep?
@@ -402,7 +402,7 @@ public class HAStartupAndFailoverDUnitTest extends JUnit4DistributedTestCase {
       assertNotNull(bs);
       bs.start();
     } catch (Exception ex) {
-      fail("while startServer()  " + ex);
+      fail("while buildInThisVM()  " + ex);
     }
   }
 

@@ -15,34 +15,35 @@
 
 package org.apache.geode.security;
 
-import static org.apache.geode.distributed.ConfigurationProperties.*;
-import static org.assertj.core.api.Java6Assertions.*;
-import static org.junit.Assert.*;
+import static org.apache.geode.distributed.ConfigurationProperties.SECURITY_MANAGER;
+import static org.apache.geode.distributed.ConfigurationProperties.SECURITY_POST_PROCESSOR;
+import static org.assertj.core.api.Java6Assertions.assertThatThrownBy;
+import static org.junit.Assert.assertEquals;
 
-import java.util.Properties;
-
+import org.apache.geode.GemFireConfigException;
+import org.apache.geode.distributed.DistributedSystem;
+import org.apache.geode.internal.i18n.LocalizedStrings;
+import org.apache.geode.test.dunit.IgnoredException;
 import org.apache.geode.test.dunit.rules.LocatorServerStartupRule;
 import org.apache.geode.test.dunit.rules.ServerStarterRule;
+import org.apache.geode.test.junit.categories.DistributedTest;
+import org.apache.geode.test.junit.categories.SecurityTest;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
-import org.apache.geode.GemFireConfigException;
-import org.apache.geode.distributed.DistributedSystem;
-import org.apache.geode.internal.i18n.LocalizedStrings;
-import org.apache.geode.test.dunit.IgnoredException;
-import org.apache.geode.test.dunit.internal.JUnit4DistributedTestCase;
-import org.apache.geode.test.junit.categories.DistributedTest;
-import org.apache.geode.test.junit.categories.SecurityTest;
+import java.util.Properties;
 
 @Category({DistributedTest.class, SecurityTest.class})
-
-public class ClusterConfigWithoutSecurityDUnitTest extends JUnit4DistributedTestCase {
+public class ClusterConfigWithoutSecurityDUnitTest {
 
   @Rule
   public LocatorServerStartupRule lsRule = new LocatorServerStartupRule();
+
+  @Rule
+  public ServerStarterRule serverStarter = new ServerStarterRule();
 
   @Before
   public void before() throws Exception {
@@ -70,9 +71,8 @@ public class ClusterConfigWithoutSecurityDUnitTest extends JUnit4DistributedTest
     props.setProperty("use-cluster-configuration", "false");
 
     // initial security properties should only contain initial set of values
-    ServerStarterRule serverStarter = new ServerStarterRule(props);
-    serverStarter.startServer(lsRule.getMember(0).getPort());
-    DistributedSystem ds = serverStarter.cache.getDistributedSystem();
+    serverStarter.startServer(props, lsRule.getMember(0).getPort());
+    DistributedSystem ds = serverStarter.getCache().getDistributedSystem();
 
     // after cache is created, the configuration won't chagne
     Properties secProps = ds.getSecurityProperties();
@@ -91,9 +91,7 @@ public class ClusterConfigWithoutSecurityDUnitTest extends JUnit4DistributedTest
     props.setProperty("security-manager", "mySecurityManager");
     props.setProperty("use-cluster-configuration", "true");
 
-    ServerStarterRule serverStarter = new ServerStarterRule(props);
-
-    assertThatThrownBy(() -> serverStarter.startServer(lsRule.getMember(0).getPort()))
+    assertThatThrownBy(() -> serverStarter.startServer(props, lsRule.getMember(0).getPort()))
         .isInstanceOf(GemFireConfigException.class)
         .hasMessage(LocalizedStrings.GEMFIRE_CACHE_SECURITY_MISCONFIGURATION.toLocalizedString());
   }

@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.geode.InternalGemFireError;
 import org.apache.geode.cache.Region;
 import org.apache.geode.cache.execute.RegionFunctionContext;
+import org.apache.geode.cache.lucene.LuceneIndexDestroyedException;
 import org.apache.geode.cache.lucene.internal.repository.IndexRepository;
 import org.apache.geode.cache.lucene.internal.repository.RepositoryManager;
 import org.apache.geode.cache.lucene.internal.repository.serializer.LuceneSerializer;
@@ -49,11 +50,13 @@ public abstract class AbstractPartitionedRepositoryManager implements Repository
   protected final PartitionedRegion userRegion;
   protected final LuceneSerializer serializer;
   protected final LuceneIndexImpl index;
+  protected volatile boolean closed;
 
   public AbstractPartitionedRepositoryManager(LuceneIndexImpl index, LuceneSerializer serializer) {
     this.index = index;
     this.userRegion = (PartitionedRegion) index.getCache().getRegion(index.getRegionPath());
     this.serializer = serializer;
+    this.closed = false;
   }
 
   @Override
@@ -87,9 +90,26 @@ public abstract class AbstractPartitionedRepositoryManager implements Repository
     return repos;
   }
 
-  public abstract IndexRepository createOneIndexRepository(final Integer bucketId,
-      LuceneSerializer serializer, LuceneIndexImpl index, PartitionedRegion userRegion)
-      throws IOException;
+  public abstract IndexRepository computeRepository(final Integer bucketId,
+      LuceneSerializer serializer, LuceneIndexImpl index, PartitionedRegion userRegion,
+      IndexRepository oldRepository) throws IOException;
+
+  protected IndexRepository computeRepository(Integer bucketId) {
+    IndexRepository repo = indexRepositories.compute(bucketId, (key, oldRepository) -> {
+      try {
+        if (closed) {
+          if (oldRepository != null) {
+            oldRepository.cleanup();
+          }
+          throw new LuceneIndexDestroyedException(index.getName(), index.getRegionPath());
+        }
+        return computeRepository(bucketId, serializer, index, userRegion, oldRepository);
+      } catch (IOException e) {
+        throw new InternalGemFireError("Unable to create index repository", e);
+      }
+    });
+    return repo;
+  }
 
   /**
    * Return the repository for a given user bucket
@@ -100,27 +120,23 @@ public abstract class AbstractPartitionedRepositoryManager implements Repository
       return repo;
     }
 
-    repo = indexRepositories.compute(bucketId, (key, oldRepository) -> {
-      if (oldRepository != null && !oldRepository.isClosed()) {
-        return oldRepository;
-      }
-      if (oldRepository != null) {
-        oldRepository.cleanup();
-      }
-
-      try {
-        return createOneIndexRepository(bucketId, serializer, index, userRegion);
-      } catch (IOException e) {
-        throw new InternalGemFireError("Unable to create index repository", e);
-      }
-
-    });
+    repo = computeRepository(bucketId);
 
     if (repo == null) {
       throw new BucketNotFoundException(
-          "Colocated index buckets not found for bucket id " + bucketId);
+          "Unable to find lucene index because no longer primary for bucket " + bucketId);
     }
-
     return repo;
+  }
+
+  @Override
+  public void close() {
+    this.closed = true;
+    for (Integer bucketId : indexRepositories.keySet()) {
+      try {
+        computeRepository(bucketId);
+      } catch (LuceneIndexDestroyedException e) {
+        /* expected exception */}
+    }
   }
 }

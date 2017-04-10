@@ -14,18 +14,17 @@
  */
 package org.apache.geode.management.internal.security;
 
-import static org.apache.geode.distributed.ConfigurationProperties.JMX_MANAGER_PORT;
 import static org.apache.geode.distributed.ConfigurationProperties.SECURITY_MANAGER;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.Assert.assertTrue;
 
-import org.apache.geode.internal.AvailablePort;
 import org.apache.geode.management.MemberMXBean;
 import org.apache.geode.security.NotAuthorizedException;
 import org.apache.geode.security.SimpleTestSecurityManager;
 import org.apache.geode.test.dunit.rules.ConnectionConfiguration;
+import org.apache.geode.test.dunit.rules.LocalServerStarterRule;
 import org.apache.geode.test.dunit.rules.MBeanServerConnectionRule;
-import org.apache.geode.test.dunit.rules.ServerStarterRule;
+import org.apache.geode.test.dunit.rules.ServerStarterBuilder;
 import org.apache.geode.test.junit.categories.IntegrationTest;
 import org.apache.geode.test.junit.categories.SecurityTest;
 import org.junit.Before;
@@ -37,22 +36,16 @@ import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
-import java.util.Properties;
 
 @Category({IntegrationTest.class, SecurityTest.class})
 public class DeployCommandsSecurityTest {
 
-  private static int jmxManagerPort = AvailablePort.getRandomAvailablePort(AvailablePort.SOCKET);
-
   private MemberMXBean bean;
 
   @ClassRule
-  public static ServerStarterRule serverRule = new ServerStarterRule(new Properties() {
-    {
-      setProperty(SECURITY_MANAGER, SimpleTestSecurityManager.class.getName());
-      setProperty(JMX_MANAGER_PORT, jmxManagerPort + "");
-    }
-  });
+  public static LocalServerStarterRule server = new ServerStarterBuilder().withJMXManager()
+      .withProperty(SECURITY_MANAGER, SimpleTestSecurityManager.class.getName()).withJMXManager()
+      .buildInThisVM();
 
   @ClassRule
   public static TemporaryFolder temporaryFolder = new TemporaryFolder();
@@ -66,7 +59,8 @@ public class DeployCommandsSecurityTest {
   }
 
   @Rule
-  public MBeanServerConnectionRule connectionRule = new MBeanServerConnectionRule(jmxManagerPort);
+  public MBeanServerConnectionRule connectionRule =
+      new MBeanServerConnectionRule(server.getJmxPort());
 
   @Before
   public void setUp() throws Exception {

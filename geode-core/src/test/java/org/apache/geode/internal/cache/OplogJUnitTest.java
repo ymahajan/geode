@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
 
-import com.jayway.awaitility.Awaitility;
+import org.awaitility.Awaitility;
 import org.apache.commons.io.FileUtils;
 import org.junit.Assert;
 import org.junit.Ignore;
@@ -1075,10 +1075,10 @@ public class OplogJUnitTest extends DiskRegionTestingBase {
 
       case OP_MODIFY:
         // @todo how do a know if the key needed to be serialized?
-        size += 1 + 4 + val.length + Oplog.bytesNeeded(Oplog.abs(opKey));
+        size += 1 + 4 + val.length + Oplog.bytesNeeded(opKey);
         break;
       case OP_DEL:
-        size += Oplog.bytesNeeded(Oplog.abs(opKey));
+        size += Oplog.bytesNeeded(opKey);
         break;
     }
     return size;

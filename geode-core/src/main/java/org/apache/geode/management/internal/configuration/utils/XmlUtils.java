@@ -355,8 +355,12 @@ public class XmlUtils {
    */
   public static NodeList getNodes(Document doc, XmlEntity xmlEntity)
       throws XPathExpressionException {
-    return query(doc, xmlEntity.getSearchString(),
-        new XPathContext(xmlEntity.getPrefix(), xmlEntity.getNamespace()));
+    XPathContext context = new XPathContext();
+    context.addNamespace(xmlEntity.getPrefix(), xmlEntity.getNamespace());
+    if (xmlEntity.getChildPrefix() != null) {
+      context.addNamespace(xmlEntity.getChildPrefix(), xmlEntity.getChildNamespace());
+    }
+    return query(doc, xmlEntity.getSearchString(), context);
   }
 
   /**
@@ -462,6 +466,26 @@ public class XmlUtils {
   public static Document createDocumentFromXml(String xmlContent)
       throws SAXException, ParserConfigurationException, IOException {
     return createDocumentFromReader(new StringReader(xmlContent));
+  }
+
+  /**
+   * Create a {@link Document} using {@link XmlUtils#createDocumentFromXml(String)} and if the
+   * version attribute is not equal to the current version then update the XML to the current schema
+   * and return the document.
+   *
+   * @param xmlContent XML content to load and upgrade.
+   * @return {@link Document} from xmlContent.
+   * @since GemFire 8.1
+   */
+  public static Document createAndUpgradeDocumentFromXml(String xmlContent)
+      throws SAXException, ParserConfigurationException, IOException, XPathExpressionException {
+    Document doc = XmlUtils.createDocumentFromXml(xmlContent);
+    if (!CacheXml.VERSION_LATEST.equals(XmlUtils.getAttribute(doc.getDocumentElement(),
+        CacheXml.VERSION, CacheXml.GEODE_NAMESPACE))) {
+      doc = upgradeSchema(doc, CacheXml.GEODE_NAMESPACE, CacheXml.LATEST_SCHEMA_LOCATION,
+          CacheXml.VERSION_LATEST);
+    }
+    return doc;
   }
 
   /**
@@ -670,28 +694,5 @@ public class XmlUtils {
         root.setAttribute(attributeName, attributeValue);
       }
     }
-  }
-
-  /***
-   * Reads the xml file as a String
-   * 
-   * @param xmlFilePath
-   * @return String containing xml read from the file.
-   * @throws IOException
-   * @throws ParserConfigurationException
-   * @throws SAXException
-   * @throws TransformerException
-   * @throws TransformerFactoryConfigurationError
-   */
-  public static String readXmlAsStringFromFile(String xmlFilePath) throws IOException, SAXException,
-      ParserConfigurationException, TransformerFactoryConfigurationError, TransformerException {
-    File file = new File(xmlFilePath);
-    // The file can be empty if the only command we have issued for this group is deployJar
-    if (file.length() == 0) {
-      return "";
-    }
-
-    Document doc = getDocumentBuilder().parse(file);
-    return elementToString(doc);
   }
 }

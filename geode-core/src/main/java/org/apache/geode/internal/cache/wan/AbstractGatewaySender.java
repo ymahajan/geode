@@ -22,9 +22,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import org.apache.geode.InternalGemFireError;
+import org.apache.geode.internal.cache.execute.BucketMovedException;
 import org.apache.geode.internal.cache.ha.ThreadIdentifier;
+import org.apache.geode.internal.cache.wan.parallel.WaitUntilParallelGatewaySenderFlushedCoordinator;
 import org.apache.logging.log4j.Logger;
 
 import org.apache.geode.CancelCriterion;
@@ -33,15 +37,12 @@ import org.apache.geode.cache.AttributesFactory;
 import org.apache.geode.cache.Cache;
 import org.apache.geode.cache.CacheException;
 import org.apache.geode.cache.DataPolicy;
-import org.apache.geode.cache.Operation;
 import org.apache.geode.cache.Region;
 import org.apache.geode.cache.RegionAttributes;
 import org.apache.geode.cache.RegionDestroyedException;
 import org.apache.geode.cache.RegionExistsException;
 import org.apache.geode.cache.Scope;
 import org.apache.geode.cache.asyncqueue.AsyncEventListener;
-import org.apache.geode.cache.asyncqueue.internal.AsyncEventQueueImpl;
-import org.apache.geode.cache.asyncqueue.internal.AsyncEventQueueStats;
 import org.apache.geode.cache.client.internal.LocatorDiscoveryCallback;
 import org.apache.geode.cache.client.internal.PoolImpl;
 import org.apache.geode.cache.wan.GatewayEventFilter;
@@ -513,6 +514,10 @@ public abstract class AbstractGatewaySender implements GatewaySender, Distributi
    */
   @Override
   public void destroy() {
+    destroy(true);
+  }
+
+  public void destroy(boolean initiator) {
     try {
       this.getLifeCycleLock().writeLock().lock();
       // first, check if this sender is attached to any region. If so, throw
@@ -541,33 +546,35 @@ public abstract class AbstractGatewaySender implements GatewaySender, Distributi
       ((GemFireCacheImpl) this.cache).removeGatewaySender(this);
 
       // destroy the region underneath the sender's queue
-      Set<RegionQueue> regionQueues = getQueues();
-      if (regionQueues != null) {
-        for (RegionQueue regionQueue : regionQueues) {
-          try {
-            if (regionQueue instanceof ConcurrentParallelGatewaySenderQueue) {
-              Set<PartitionedRegion> queueRegions =
-                  ((ConcurrentParallelGatewaySenderQueue) regionQueue).getRegions();
-              for (PartitionedRegion queueRegion : queueRegions) {
-                queueRegion.destroyRegion();
+      if (initiator) {
+        Set<RegionQueue> regionQueues = getQueues();
+        if (regionQueues != null) {
+          for (RegionQueue regionQueue : regionQueues) {
+            try {
+              if (regionQueue instanceof ConcurrentParallelGatewaySenderQueue) {
+                Set<PartitionedRegion> queueRegions =
+                    ((ConcurrentParallelGatewaySenderQueue) regionQueue).getRegions();
+                for (PartitionedRegion queueRegion : queueRegions) {
+                  queueRegion.destroyRegion();
+                }
+              } else {// For SerialGatewaySenderQueue, do local destroy
+                regionQueue.getRegion().localDestroyRegion();
               }
-            } else {// For SerialGatewaySenderQueue, do local destroy
-              regionQueue.getRegion().localDestroyRegion();
+            }
+            // Can occur in case of ParallelGatewaySenderQueue, when the region is
+            // being destroyed
+            // by several nodes simultaneously
+            catch (RegionDestroyedException e) {
+              // the region might have already been destroyed by other node. Just
+              // log
+              // the exception.
+              this.logger.info(LocalizedMessage.create(
+                  LocalizedStrings.AbstractGatewaySender_REGION_0_UNDERLYING_GATEWAYSENDER_1_IS_ALREADY_DESTROYED,
+                  new Object[] {e.getRegionFullPath(), this}));
             }
           }
-          // Can occur in case of ParallelGatewaySenderQueue, when the region is
-          // being destroyed
-          // by several nodes simultaneously
-          catch (RegionDestroyedException e) {
-            // the region might have already been destroyed by other node. Just
-            // log
-            // the exception.
-            this.logger.info(LocalizedMessage.create(
-                LocalizedStrings.AbstractGatewaySender_REGION_0_UNDERLYING_GATEWAYSENDER_1_IS_ALREADY_DESTROYED,
-                new Object[] {e.getRegionFullPath(), this}));
-          }
-        }
-      } // END if (regionQueues != null)
+        } // END if (regionQueues != null)
+      }
     } finally {
       this.getLifeCycleLock().writeLock().unlock();
     }
@@ -675,7 +682,7 @@ public abstract class AbstractGatewaySender implements GatewaySender, Distributi
     }
   }
 
-  final public RegionQueue getQueue() {
+  public RegionQueue getQueue() {
     if (this.eventProcessor != null) {
       if (!(this.eventProcessor instanceof ConcurrentSerialGatewaySenderEventProcessor)) {
         return this.eventProcessor.getQueue();
@@ -1089,7 +1096,7 @@ public abstract class AbstractGatewaySender implements GatewaySender, Distributi
     return substituteValue;
   }
 
-  private void initializeEventIdIndex() {
+  protected void initializeEventIdIndex() {
     final boolean isDebugEnabled = logger.isDebugEnabled();
 
     boolean gotLock = false;
@@ -1238,6 +1245,35 @@ public abstract class AbstractGatewaySender implements GatewaySender, Distributi
 
   public ReentrantReadWriteLock getLifeCycleLock() {
     return lifeCycleLock;
+  }
+
+  public boolean waitUntilFlushed(long timeout, TimeUnit unit) throws InterruptedException {
+    boolean result = false;
+    if (isParallel()) {
+      try {
+        WaitUntilParallelGatewaySenderFlushedCoordinator coordinator =
+            new WaitUntilParallelGatewaySenderFlushedCoordinator(this, timeout, unit, true);
+        result = coordinator.waitUntilFlushed();
+      } catch (BucketMovedException | CancelException | RegionDestroyedException e) {
+        logger.warn(
+            LocalizedStrings.AbstractGatewaySender_CAUGHT_EXCEPTION_ATTEMPTING_WAIT_UNTIL_FLUSHED_RETRYING
+                .toLocalizedString(),
+            e);
+        throw e;
+      } catch (Throwable t) {
+        logger.warn(
+            LocalizedStrings.AbstractGatewaySender_CAUGHT_EXCEPTION_ATTEMPTING_WAIT_UNTIL_FLUSHED_RETURNING
+                .toLocalizedString(),
+            t);
+        throw new InternalGemFireError(t);
+      }
+      return result;
+    } else {
+      // Serial senders are currently not supported
+      throw new UnsupportedOperationException(
+          LocalizedStrings.AbstractGatewaySender_WAIT_UNTIL_FLUSHED_NOT_SUPPORTED_FOR_SERIAL_SENDERS
+              .toLocalizedString());
+    }
   }
 
   /**

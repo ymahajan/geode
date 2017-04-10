@@ -14,21 +14,6 @@
  */
 package org.apache.geode.management.internal.cli.commands;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
-import javax.management.ObjectName;
-
 import org.apache.geode.cache.Cache;
 import org.apache.geode.cache.CacheFactory;
 import org.apache.geode.cache.execute.ResultCollector;
@@ -44,32 +29,45 @@ import org.apache.geode.management.internal.MBeanJMXAdapter;
 import org.apache.geode.management.internal.SystemManagementService;
 import org.apache.geode.management.internal.cli.CliUtil;
 import org.apache.geode.management.internal.cli.LogWrapper;
-import org.apache.geode.management.internal.cli.functions.*;
+import org.apache.geode.management.internal.cli.functions.CliFunctionResult;
+import org.apache.geode.management.internal.cli.functions.GatewayReceiverCreateFunction;
+import org.apache.geode.management.internal.cli.functions.GatewayReceiverFunctionArgs;
+import org.apache.geode.management.internal.cli.functions.GatewaySenderCreateFunction;
+import org.apache.geode.management.internal.cli.functions.GatewaySenderDestroyFunction;
+import org.apache.geode.management.internal.cli.functions.GatewaySenderDestroyFunctionArgs;
+import org.apache.geode.management.internal.cli.functions.GatewaySenderFunctionArgs;
 import org.apache.geode.management.internal.cli.i18n.CliStrings;
 import org.apache.geode.management.internal.cli.result.CommandResultException;
 import org.apache.geode.management.internal.cli.result.CompositeResultData;
 import org.apache.geode.management.internal.cli.result.ResultBuilder;
 import org.apache.geode.management.internal.cli.result.TabularResultData;
-import org.apache.geode.management.internal.cli.shell.Gfsh;
-import org.apache.geode.management.internal.configuration.SharedConfigurationWriter;
 import org.apache.geode.management.internal.configuration.domain.XmlEntity;
 import org.apache.geode.management.internal.security.ResourceOperation;
 import org.apache.geode.security.ResourcePermission.Operation;
 import org.apache.geode.security.ResourcePermission.Resource;
-
-import org.springframework.shell.core.CommandMarker;
 import org.springframework.shell.core.annotation.CliAvailabilityIndicator;
 import org.springframework.shell.core.annotation.CliCommand;
 import org.springframework.shell.core.annotation.CliOption;
 
-public class WanCommands implements CommandMarker {
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import javax.management.ObjectName;
 
-  private Gfsh getGfsh() {
-    return Gfsh.getCurrentInstance();
-  }
-
+public class WanCommands extends AbstractCommandsSupport {
   @CliCommand(value = CliStrings.CREATE_GATEWAYSENDER, help = CliStrings.CREATE_GATEWAYSENDER__HELP)
-  @CliMetaData(relatedTopic = CliStrings.TOPIC_GEODE_WAN, writesToSharedConfiguration = true)
+  @CliMetaData(relatedTopic = CliStrings.TOPIC_GEODE_WAN)
   @ResourceOperation(resource = Resource.DATA, operation = Operation.MANAGE)
   public Result createGatewaySender(@CliOption(key = CliStrings.CREATE_GATEWAYSENDER__GROUP,
       optionContext = ConverterHint.MEMBERGROUP,
@@ -140,7 +138,7 @@ public class WanCommands implements CommandMarker {
 
     Result result = null;
 
-    XmlEntity xmlEntity = null;
+    AtomicReference<XmlEntity> xmlEntity = new AtomicReference<>();
     try {
       GatewaySenderFunctionArgs gatewaySenderFunctionArgs = new GatewaySenderFunctionArgs(id,
           remoteDistributedSystemId, parallel, manualStart, socketBufferSize, socketReadTimeout,
@@ -149,7 +147,7 @@ public class WanCommands implements CommandMarker {
           gatewayEventFilters, gatewayTransportFilter);
 
       Set<DistributedMember> membersToCreateGatewaySenderOn =
-          CliUtil.findAllMatchingMembers(onGroups, onMember == null ? null : onMember.split(","));
+          CliUtil.findMembersOrThrow(onGroups, onMember == null ? null : onMember.split(","));
 
       ResultCollector<?, ?> resultCollector =
           CliUtil.executeFunction(GatewaySenderCreateFunction.INSTANCE, gatewaySenderFunctionArgs,
@@ -166,8 +164,8 @@ public class WanCommands implements CommandMarker {
         tabularResultData.accumulate("Status",
             (success ? "" : errorPrefix) + gatewaySenderCreateResult.getMessage());
 
-        if (success && xmlEntity == null) {
-          xmlEntity = gatewaySenderCreateResult.getXmlEntity();
+        if (success && xmlEntity.get() == null) {
+          xmlEntity.set(gatewaySenderCreateResult.getXmlEntity());
         }
       }
       result = ResultBuilder.buildResult(tabularResultData);
@@ -178,9 +176,9 @@ public class WanCommands implements CommandMarker {
       result = handleCommandResultException(crex);
     }
 
-    if (xmlEntity != null) {
-      result
-          .setCommandPersisted((new SharedConfigurationWriter()).addXmlEntity(xmlEntity, onGroups));
+    if (xmlEntity.get() != null) {
+      persistClusterConfiguration(result,
+          () -> getSharedConfiguration().addXmlEntity(xmlEntity.get(), onGroups));
     }
     return result;
   }
@@ -211,7 +209,7 @@ public class WanCommands implements CommandMarker {
           (SystemManagementService) ManagementService.getExistingManagementService(cache);
 
       TabularResultData resultData = ResultBuilder.createTabularResultData();
-      Set<DistributedMember> dsMembers = CliUtil.findAllMatchingMembers(onGroup, onMember);
+      Set<DistributedMember> dsMembers = CliUtil.findMembersOrThrow(onGroup, onMember);
 
       ExecutorService execService = Executors.newCachedThreadPool(new ThreadFactory() {
         AtomicInteger threadNum = new AtomicInteger();
@@ -348,7 +346,7 @@ public class WanCommands implements CommandMarker {
       TabularResultData resultData = ResultBuilder.createTabularResultData();
       Set<DistributedMember> dsMembers = null;
 
-      dsMembers = CliUtil.findAllMatchingMembers(onGroup, onMember);
+      dsMembers = CliUtil.findMembersOrThrow(onGroup, onMember);
       for (DistributedMember member : dsMembers) {
         if (cache.getDistributedSystem().getDistributedMember().getId().equals(member.getId())) {
           bean = service.getLocalGatewaySenderMXBean(senderId);
@@ -479,7 +477,7 @@ public class WanCommands implements CommandMarker {
       // return ResultBuilder
       // .createUserErrorResult(CliStrings.GATEWAY_MSG_MEMBERS_NOT_FOUND);
       // }
-      dsMembers = CliUtil.findAllMatchingMembers(onGroup, onMember);
+      dsMembers = CliUtil.findMembersOrThrow(onGroup, onMember);
       for (DistributedMember member : dsMembers) {
         if (cache.getDistributedSystem().getDistributedMember().getId().equals(member.getId())) {
           bean = service.getLocalGatewaySenderMXBean(senderId);
@@ -551,7 +549,7 @@ public class WanCommands implements CommandMarker {
 
 
       TabularResultData resultData = ResultBuilder.createTabularResultData();
-      Set<DistributedMember> dsMembers = CliUtil.findAllMatchingMembers(onGroup, onMember);
+      Set<DistributedMember> dsMembers = CliUtil.findMembersOrThrow(onGroup, onMember);
 
       for (DistributedMember member : dsMembers) {
         if (cache.getDistributedSystem().getDistributedMember().getId().equals(member.getId())) {
@@ -627,14 +625,14 @@ public class WanCommands implements CommandMarker {
 
     Result result = null;
 
-    XmlEntity xmlEntity = null;
+    AtomicReference<XmlEntity> xmlEntity = new AtomicReference<>();
     try {
       GatewayReceiverFunctionArgs gatewayReceiverFunctionArgs =
           new GatewayReceiverFunctionArgs(manualStart, startPort, endPort, bindAddress,
               socketBufferSize, maximumTimeBetweenPings, gatewayTransportFilters);
 
       Set<DistributedMember> membersToCreateGatewayReceiverOn =
-          CliUtil.findAllMatchingMembers(onGroups, onMember == null ? null : onMember.split(","));
+          CliUtil.findMembersOrThrow(onGroups, onMember == null ? null : onMember.split(","));
 
       ResultCollector<?, ?> resultCollector =
           CliUtil.executeFunction(GatewayReceiverCreateFunction.INSTANCE,
@@ -652,8 +650,8 @@ public class WanCommands implements CommandMarker {
         tabularResultData.accumulate("Status",
             (success ? "" : errorPrefix) + gatewayReceiverCreateResult.getMessage());
 
-        if (success && xmlEntity == null) {
-          xmlEntity = gatewayReceiverCreateResult.getXmlEntity();
+        if (success && xmlEntity.get() == null) {
+          xmlEntity.set(gatewayReceiverCreateResult.getXmlEntity());
         }
       }
       result = ResultBuilder.buildResult(tabularResultData);
@@ -664,9 +662,9 @@ public class WanCommands implements CommandMarker {
       result = handleCommandResultException(crex);
     }
 
-    if (xmlEntity != null) {
-      result
-          .setCommandPersisted((new SharedConfigurationWriter()).addXmlEntity(xmlEntity, onGroups));
+    if (xmlEntity.get() != null) {
+      persistClusterConfiguration(result,
+          () -> getSharedConfiguration().addXmlEntity(xmlEntity.get(), onGroups));
     }
 
     return result;
@@ -755,7 +753,7 @@ public class WanCommands implements CommandMarker {
       GatewayReceiverMXBean receieverBean = null;
 
       TabularResultData resultData = ResultBuilder.createTabularResultData();
-      Set<DistributedMember> dsMembers = CliUtil.findAllMatchingMembers(onGroup, onMember);
+      Set<DistributedMember> dsMembers = CliUtil.findMembersOrThrow(onGroup, onMember);
 
       for (DistributedMember member : dsMembers) {
         ObjectName gatewayReceiverObjectName = MBeanJMXAdapter.getGatewayReceiverMBeanName(member);
@@ -822,7 +820,7 @@ public class WanCommands implements CommandMarker {
 
 
       TabularResultData resultData = ResultBuilder.createTabularResultData();
-      Set<DistributedMember> dsMembers = CliUtil.findAllMatchingMembers(onGroup, onMember);
+      Set<DistributedMember> dsMembers = CliUtil.findMembersOrThrow(onGroup, onMember);
 
       for (DistributedMember member : dsMembers) {
         ObjectName gatewayReceiverObjectName = MBeanJMXAdapter.getGatewayReceiverMBeanName(member);
@@ -889,7 +887,7 @@ public class WanCommands implements CommandMarker {
       // return ResultBuilder
       // .createUserErrorResult(CliStrings.GATEWAY_MSG_MEMBERS_NOT_FOUND);
       // }
-      dsMembers = CliUtil.findAllMatchingMembers(onGroup, onMember);
+      dsMembers = CliUtil.findMembersOrThrow(onGroup, onMember);
 
       Map<String, Map<String, GatewaySenderMXBean>> gatewaySenderBeans =
           new TreeMap<String, Map<String, GatewaySenderMXBean>>();
@@ -988,7 +986,7 @@ public class WanCommands implements CommandMarker {
               .addTable(CliStrings.TABLE_GATEWAY_SENDER);
 
       Set<DistributedMember> dsMembers = null;
-      dsMembers = CliUtil.findAllMatchingMembers(onGroup, onMember);
+      dsMembers = CliUtil.findMembersOrThrow(onGroup, onMember);
       for (DistributedMember member : dsMembers) {
         if (cache.getDistributedSystem().getDistributedMember().getId().equals(member.getId())) {
           bean = service.getLocalGatewaySenderMXBean(senderId);
@@ -1043,7 +1041,7 @@ public class WanCommands implements CommandMarker {
           crd.addSection(CliStrings.SECTION_GATEWAY_RECEIVER_NOT_AVAILABLE)
               .addTable(CliStrings.TABLE_GATEWAY_RECEIVER);
 
-      Set<DistributedMember> dsMembers = CliUtil.findAllMatchingMembers(onGroup, onMember);
+      Set<DistributedMember> dsMembers = CliUtil.findMembersOrThrow(onGroup, onMember);
 
       for (DistributedMember member : dsMembers) {
         ObjectName gatewayReceiverObjectName = MBeanJMXAdapter.getGatewayReceiverMBeanName(member);
@@ -1070,7 +1068,7 @@ public class WanCommands implements CommandMarker {
 
   @CliCommand(value = CliStrings.DESTROY_GATEWAYSENDER,
       help = CliStrings.DESTROY_GATEWAYSENDER__HELP)
-  @CliMetaData(relatedTopic = CliStrings.TOPIC_GEODE_WAN, writesToSharedConfiguration = true)
+  @CliMetaData(relatedTopic = CliStrings.TOPIC_GEODE_WAN)
   @ResourceOperation(resource = Resource.DATA, operation = Operation.MANAGE)
   public Result destroyGatewaySender(
       @CliOption(key = CliStrings.DESTROY_GATEWAYSENDER__GROUP,
@@ -1091,7 +1089,7 @@ public class WanCommands implements CommandMarker {
           new GatewaySenderDestroyFunctionArgs(id);
 
       Set<DistributedMember> membersToDestroyGatewaySenderOn =
-          CliUtil.findAllMatchingMembers(onGroups, onMember == null ? null : onMember.split(","));
+          CliUtil.findMembersOrThrow(onGroups, onMember == null ? null : onMember.split(","));
 
       ResultCollector<?, ?> resultCollector =
           CliUtil.executeFunction(GatewaySenderDestroyFunction.INSTANCE,

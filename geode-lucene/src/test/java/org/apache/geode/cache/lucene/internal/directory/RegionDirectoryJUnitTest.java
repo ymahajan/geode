@@ -14,15 +14,22 @@
  */
 package org.apache.geode.cache.lucene.internal.directory;
 
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.carrotsearch.randomizedtesting.rules.SystemPropertiesRestoreRule;
+import org.apache.geode.distributed.internal.locks.DLockService;
+import org.apache.geode.internal.cache.PartitionedRegionHelper;
 import org.apache.lucene.store.BaseDirectoryTestCase;
 import org.apache.lucene.store.Directory;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.experimental.categories.Category;
 
@@ -51,7 +58,6 @@ public class RegionDirectoryJUnitTest extends BaseDirectoryTestCase {
     // test asserts that no system properties have changed. Unfortunately, there is no
     // way to control the order of rules, so we can't clear this property with a rule
     // or @After method. Instead, do it in the close method of the directory.
-    return new RegionDirectory(new ConcurrentHashMap<String, File>(),
-        new ConcurrentHashMap<ChunkKey, byte[]>(), stats);
+    return new RegionDirectory(new ConcurrentHashMap(), stats);
   }
 }

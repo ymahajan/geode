@@ -286,7 +286,8 @@ public class HeapLRUCapacityController extends LRUAlgorithm {
 
       @Override
       public boolean lruLimitExceeded(LRUStatistics lruStatistics, DiskRegionView drv) {
-        InternalResourceManager resourceManager = drv.getDiskStore().getCache().getResourceManager();
+        InternalResourceManager resourceManager =
+            drv.getDiskStore().getCache().getResourceManager();
         if (!drv.getOffHeap()) {
           return resourceManager.getHeapMonitor().getState().isEviction();
         } else {

@@ -65,6 +65,7 @@ public class OffHeapLRURecoveryRegressionTest {
       gfc.close();
     }
     System.setProperty("gemfire.disk.recoverValuesSync", "true");
+    System.setProperty("gemfire.disk.recoverLruValues", "true");
     try {
       gfc = createCache();
       try {
@@ -82,6 +83,7 @@ public class OffHeapLRURecoveryRegressionTest {
       }
     } finally {
       System.clearProperty("gemfire.disk.recoverValuesSync");
+      System.clearProperty("gemfire.disk.recoverLruValues");
     }
   }
   

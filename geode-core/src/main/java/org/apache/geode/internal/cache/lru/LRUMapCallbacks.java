@@ -56,7 +56,7 @@ public interface LRUMapCallbacks {
    * Return true if the lru has exceeded its limit and needs to evict. Note that this method is
    * currently used to prevent disk recovery from faulting in values once the limit is exceeded.
    * 
-   * @param drv TODO
+   * @param drv the disk region whose limit is checked
    */
   public boolean lruLimitExceeded(DiskRegionView drv);
 

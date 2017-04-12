@@ -49,7 +49,7 @@ public class OffHeapLRURecoveryRegressionTest {
   @Test
   public void recoveringTooMuchDataDoesNotRunOutOfOffHeapMemory() {
     final int ENTRY_COUNT = 40;
-    long expectedUsedMemory;
+    final int expectedObjectCount;
     GemFireCacheImpl gfc = createCache();
     try {
       Region<Object, Object> r = createRegion(gfc);
@@ -57,7 +57,9 @@ public class OffHeapLRURecoveryRegressionTest {
       for (int i = 0; i < ENTRY_COUNT; i++) {
         r.put(i, v);
       }
-      expectedUsedMemory = MemoryAllocatorImpl.getAllocator().getUsedMemory();
+      // expect one more during recovery because of the way the LRU limit is
+      // enforced during recover.
+      expectedObjectCount = MemoryAllocatorImpl.getAllocator().getStats().getObjects() + 1;
     } finally {
       gfc.close();
     }
@@ -69,7 +71,8 @@ public class OffHeapLRURecoveryRegressionTest {
         Region<Object, Object> r = createRegion(gfc);
         try {
           assertEquals(ENTRY_COUNT, r.size());
-          assertEquals(expectedUsedMemory, MemoryAllocatorImpl.getAllocator().getUsedMemory());
+          assertEquals(expectedObjectCount,
+              MemoryAllocatorImpl.getAllocator().getStats().getObjects());
         } finally {
           r.destroyRegion();
           DiskStore ds = gfc.findDiskStore(DS_NAME);

@@ -425,7 +425,7 @@ public final class MemLRUCapacityController extends LRUAlgorithm implements Decl
 
       @Override
       public boolean lruLimitExceeded(LRUStatistics lruStatistics, DiskRegionView drv) {
-        return stats.getCounter() > stats.getLimit();
+        return lruStatistics.getCounter() > lruStatistics.getLimit();
       }
     };
   }

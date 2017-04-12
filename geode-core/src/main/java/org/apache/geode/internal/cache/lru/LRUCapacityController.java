@@ -291,7 +291,7 @@ public final class LRUCapacityController extends LRUAlgorithm implements Declara
 
       @Override
       public boolean lruLimitExceeded(LRUStatistics lruStatistics, DiskRegionView drv) {
-        return stats.getCounter() > stats.getLimit();
+        return lruStatistics.getCounter() > lruStatistics.getLimit();
       }
     };
   }

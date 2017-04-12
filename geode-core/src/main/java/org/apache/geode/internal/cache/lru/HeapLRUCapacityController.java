@@ -270,13 +270,9 @@ public class HeapLRUCapacityController extends LRUAlgorithm {
       public boolean mustEvict(LRUStatistics stats, Region region, int delta) {
         final GemFireCacheImpl cache = (GemFireCacheImpl) region.getRegionService();
         InternalResourceManager resourceManager = cache.getResourceManager();
-        final boolean monitorStateIsEviction;
-        if (!region.getAttributes().getOffHeap()) {
-          monitorStateIsEviction = resourceManager.getHeapMonitor().getState().isEviction();
-        } else {
-          monitorStateIsEviction = resourceManager.getOffHeapMonitor().getState().isEviction();
-        }
-
+        boolean offheap = region.getAttributes().getOffHeap();
+        final boolean monitorStateIsEviction =
+            resourceManager.getMemoryMonitor(offheap).getState().isEviction();
         if (region instanceof BucketRegion) {
           return monitorStateIsEviction && ((BucketRegion) region).getSizeForEviction() > 0;
         }
@@ -288,11 +284,7 @@ public class HeapLRUCapacityController extends LRUAlgorithm {
       public boolean lruLimitExceeded(LRUStatistics lruStatistics, DiskRegionView drv) {
         InternalResourceManager resourceManager =
             drv.getDiskStore().getCache().getResourceManager();
-        if (!drv.getOffHeap()) {
-          return resourceManager.getHeapMonitor().getState().isEviction();
-        } else {
-          return resourceManager.getOffHeapMonitor().getState().isEviction();
-        }
+        return resourceManager.getMemoryMonitor(drv.getOffHeap()).getState().isEviction();
       }
     };
   }

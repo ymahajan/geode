@@ -573,15 +573,8 @@ public abstract class AbstractLRURegionMap extends AbstractRegionMap {
   private boolean mustEvict() {
     LocalRegion owner = _getOwner();
     InternalResourceManager resourceManager = owner.getCache().getResourceManager();
-
-    final boolean monitorStateIsEviction;
-    if (!owner.getAttributes().getOffHeap()) {
-      monitorStateIsEviction = resourceManager.getHeapMonitor().getState().isEviction();
-    } else {
-      monitorStateIsEviction = resourceManager.getOffHeapMonitor().getState().isEviction();
-    }
-
-    return monitorStateIsEviction && this.sizeInVM() > 0;
+    boolean offheap = owner.getAttributes().getOffHeap();
+    return resourceManager.getMemoryMonitor(offheap).getState().isEviction() && this.sizeInVM() > 0;
   }
 
   public final int centralizedLruUpdateCallback() {

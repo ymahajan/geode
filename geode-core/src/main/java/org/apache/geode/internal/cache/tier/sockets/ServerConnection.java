@@ -324,17 +324,18 @@ public class ServerConnection implements Runnable {
 
   private boolean createClientHandshake() {
     logger.info("createClientHandshake this.getCommunicationMode() " + this.getCommunicationMode());
-    if( this.getCommunicationMode() != AcceptorImpl.CLIENT_TO_SERVER_NEW_PROTOCOL )  {
+    if (this.getCommunicationMode() != AcceptorImpl.CLIENT_TO_SERVER_NEW_PROTOCOL) {
       return ServerHandShakeProcessor.readHandShake(this);
     } else {
-      InetSocketAddress remoteAddress = (InetSocketAddress)theSocket.getRemoteSocketAddress();
-      DistributedMember member = new InternalDistributedMember(remoteAddress.getAddress(), remoteAddress.getPort()); 
+      InetSocketAddress remoteAddress = (InetSocketAddress) theSocket.getRemoteSocketAddress();
+      DistributedMember member =
+          new InternalDistributedMember(remoteAddress.getAddress(), remoteAddress.getPort());
       this.proxyId = new ClientProxyMembershipID(member);
       this.handshake = new HandShake(this.proxyId, this.getDistributedSystem(), Version.CURRENT);
       return true;
     }
   }
-  
+
   private boolean verifyClientConnection() {
     synchronized (this.handShakeMonitor) {
       if (this.handshake == null) {
@@ -609,9 +610,9 @@ public class ServerConnection implements Runnable {
 
   private boolean acceptHandShake(byte epType, int qSize) {
     try {
-      if(this.communicationMode != AcceptorImpl.CLIENT_TO_SERVER_NEW_PROTOCOL) {
-        this.handshake.accept(theSocket.getOutputStream(), theSocket.getInputStream(), epType, qSize,
-          this.communicationMode, this.principal);
+      if (this.communicationMode != AcceptorImpl.CLIENT_TO_SERVER_NEW_PROTOCOL) {
+        this.handshake.accept(theSocket.getOutputStream(), theSocket.getInputStream(), epType,
+            qSize, this.communicationMode, this.principal);
       }
     } catch (IOException ioe) {
       if (!crHelper.isShutdown() && !isTerminated()) {

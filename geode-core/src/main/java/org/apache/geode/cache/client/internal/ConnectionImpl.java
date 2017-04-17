@@ -107,11 +107,12 @@ public class ConnectionImpl implements Connection {
     theSocket.setSoTimeout(handShakeTimeout);
     out = theSocket.getOutputStream();
     in = theSocket.getInputStream();
-    
-    if(communicationMode == AcceptorImpl.CLIENT_TO_SERVER_NEW_PROTOCOL) {
+
+    if (communicationMode == AcceptorImpl.CLIENT_TO_SERVER_NEW_PROTOCOL) {
       handShake.writeNewProtcolVersionForServer(this, communicationMode);
-      InetSocketAddress remoteAddr = (InetSocketAddress)theSocket.getRemoteSocketAddress();
-      DistributedMember distributedMember = new InternalDistributedMember(remoteAddr.getAddress(), remoteAddr.getPort());
+      InetSocketAddress remoteAddr = (InetSocketAddress) theSocket.getRemoteSocketAddress();
+      DistributedMember distributedMember =
+          new InternalDistributedMember(remoteAddr.getAddress(), remoteAddr.getPort());
       this.status = new ServerQueueStatus(distributedMember);
     } else {
       this.status = handShake.handshakeWithServer(this, location, communicationMode);

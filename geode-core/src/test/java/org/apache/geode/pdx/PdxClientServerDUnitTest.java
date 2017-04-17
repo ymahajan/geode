@@ -596,7 +596,7 @@ public class PdxClientServerDUnitTest extends JUnit4CacheTestCase {
     Properties p = getDistributedSystemProperties();
     p.put("log-level", "debug");
     CacheFactory cf = new CacheFactory();
-    
+
     Cache cache = getCache(cf);
     RegionFactory rf = cache.createRegionFactory(RegionShortcut.REPLICATE);
     rf.setValueConstraint(constraintClass);

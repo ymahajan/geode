@@ -70,7 +70,7 @@ public abstract class Acceptor {
    * queue (register interest, create cq, etc.).
    */
   public static final byte CLIENT_TO_SERVER_FOR_QUEUE = (byte) 107;
-  
+
   /**
    * For new client-server protocol which ignores current handshake mechanism
    */

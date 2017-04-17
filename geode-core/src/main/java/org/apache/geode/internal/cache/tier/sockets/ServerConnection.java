@@ -21,6 +21,7 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectableChannel;
@@ -43,6 +44,7 @@ import org.apache.geode.SystemFailure;
 import org.apache.geode.cache.Cache;
 import org.apache.geode.cache.client.internal.AbstractOp;
 import org.apache.geode.cache.client.internal.Connection;
+import org.apache.geode.distributed.DistributedMember;
 import org.apache.geode.distributed.DistributedSystem;
 import org.apache.geode.distributed.internal.membership.InternalDistributedMember;
 import org.apache.geode.internal.Assert;
@@ -320,11 +322,24 @@ public class ServerConnection implements Runnable {
     return executeFunctionOnLocalNodeOnly.get();
   }
 
+  private boolean createClientHandshake() {
+    logger.info("createClientHandshake this.getCommunicationMode() " + this.getCommunicationMode());
+    if( this.getCommunicationMode() != AcceptorImpl.CLIENT_TO_SERVER_NEW_PROTOCOL )  {
+      return ServerHandShakeProcessor.readHandShake(this);
+    } else {
+      InetSocketAddress remoteAddress = (InetSocketAddress)theSocket.getRemoteSocketAddress();
+      DistributedMember member = new InternalDistributedMember(remoteAddress.getAddress(), remoteAddress.getPort()); 
+      this.proxyId = new ClientProxyMembershipID(member);
+      this.handshake = new HandShake(this.proxyId, this.getDistributedSystem(), Version.CURRENT);
+      return true;
+    }
+  }
+  
   private boolean verifyClientConnection() {
     synchronized (this.handShakeMonitor) {
       if (this.handshake == null) {
         // synchronized (getCleanupTable()) {
-        boolean readHandShake = ServerHandShakeProcessor.readHandShake(this);
+        boolean readHandShake = createClientHandshake();
         if (readHandShake) {
           if (this.handshake.isOK()) {
             try {
@@ -594,8 +609,10 @@ public class ServerConnection implements Runnable {
 
   private boolean acceptHandShake(byte epType, int qSize) {
     try {
-      this.handshake.accept(theSocket.getOutputStream(), theSocket.getInputStream(), epType, qSize,
+      if(this.communicationMode != AcceptorImpl.CLIENT_TO_SERVER_NEW_PROTOCOL) {
+        this.handshake.accept(theSocket.getOutputStream(), theSocket.getInputStream(), epType, qSize,
           this.communicationMode, this.principal);
+      }
     } catch (IOException ioe) {
       if (!crHelper.isShutdown() && !isTerminated()) {
         logger.warn(LocalizedMessage.create(

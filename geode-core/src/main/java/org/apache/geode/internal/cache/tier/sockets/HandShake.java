@@ -335,6 +335,14 @@ public class HandShake implements ClientHandShake {
     setOverrides();
     this.credentials = null;
   }
+  
+  public HandShake(ClientProxyMembershipID id, DistributedSystem sys, Version v) {
+    this.id = id;
+    this.code = REPLY_OK;
+    this.system = sys;
+    this.credentials = null;
+    this.clientVersion = v;
+  }
 
   public void updateProxyID(InternalDistributedMember idm) {
     this.id.updateID(idm);
@@ -1176,6 +1184,18 @@ public class HandShake implements ClientHandShake {
     return new InternalDistributedMember(sock.getInetAddress(), sock.getPort(), false);
   }
 
+  public void writeNewProtcolVersionForServer(Connection conn, byte communicationMode) throws IOException {
+    Socket sock = conn.getSocket();
+    try {
+      DataOutputStream dos = new DataOutputStream(sock.getOutputStream());
+      dos.writeByte(communicationMode);
+    } catch (IOException ex) {
+      CancelCriterion stopper = this.system.getCancelCriterion();
+      stopper.checkCancelInProgress(null);
+      throw ex;
+    }
+  }
+  
   /**
    * Client-side handshake with a Server
    */

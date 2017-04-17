@@ -1422,7 +1422,8 @@ public class AcceptorImpl extends Acceptor implements Runnable {
 
     if (communicationMode == CLIENT_TO_SERVER || communicationMode == GATEWAY_TO_GATEWAY
         || communicationMode == MONITOR_TO_SERVER
-        || communicationMode == CLIENT_TO_SERVER_FOR_QUEUE) {
+        || communicationMode == CLIENT_TO_SERVER_FOR_QUEUE
+        || communicationMode == CLIENT_TO_SERVER_NEW_PROTOCOL) {
       String communicationModeStr = "";
       switch (communicationMode) {
         case CLIENT_TO_SERVER:
@@ -1436,6 +1437,9 @@ public class AcceptorImpl extends Acceptor implements Runnable {
           break;
         case CLIENT_TO_SERVER_FOR_QUEUE:
           communicationModeStr = "clientToServerForQueue";
+          break;
+        case CLIENT_TO_SERVER_NEW_PROTOCOL:
+          communicationModeStr = "clientToServerForNewProtocol";
           break;
       }
       if (logger.isDebugEnabled()) {

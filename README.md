@@ -64,7 +64,7 @@ dependencies {
 
 ## <a name="concepts"></a>Main Concepts and Components
 
-_Caches_ are an abstraction that describe a node in an Apache Geode distributed
+_Caches_ are an abstraction that describes a node in an Apache Geode distributed
 system.
 
 Within each cache, you define data _regions_. Data regions are analogous to
